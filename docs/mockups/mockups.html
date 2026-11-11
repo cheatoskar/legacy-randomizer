@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Legacy Randomizer mockups</title>
+<style>
+/* Mirrors TM Vibrant Shaders overlay.cpp: StyleColorsDark + its overrides. 1 ImGui px = 1 CSS px at 1080p. */
+:root{
+  --text:#fff; --dis:#808080; --accent:#ff9e38;
+  --win:rgba(15,18,23,.94); --border:rgba(255,255,255,.08); --sep:rgba(255,255,255,.10);
+  --frame:rgba(36,38,48,.90); --frame-h:rgba(51,54,66,.95);
+  --btn:rgba(217,140,51,.55); --btn-h:rgba(242,158,64,.80);
+  --grab:rgba(255,168,71,.95); --off:#40424f;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#000}
+body{font:400 17px/17px "Segoe UI",sans-serif;color:var(--text);position:relative}
+.scr{display:none;position:absolute;inset:0}
+body[data-s="1"] #s1,body[data-s="2"] #s2,body[data-s="3"] #s3,body[data-s="4"] #s4{display:block}
+.bg{position:absolute;inset:0}
+.bg svg{width:100%;height:100%;display:block}
+.bg.menu svg{filter:blur(7px) brightness(.55) saturate(.9);transform:scale(1.04)}
+
+.win{position:absolute;background:var(--win);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
+.title{font:600 22px/22px "Segoe UI";color:var(--accent);letter-spacing:0}
+.dis{color:var(--dis)}
+.row{display:flex;align-items:center;gap:8px;min-height:25px;margin-bottom:6px}
+.hdr{display:flex;align-items:center;gap:8px;height:25px;margin-bottom:6px}
+.hdr .sp{flex:1}
+.x{width:25px;height:25px;border-radius:4px;background:rgba(199,51,51,.9);text-align:center;line-height:24px;font-size:19px}
+.hdr .fps{margin-left:12px}
+.body{display:flex;gap:14px;margin-top:6px}
+.nav{width:170px;display:flex;flex-direction:column}
+.nav .it{height:38px;border-radius:6px;position:relative;padding-left:14px;font:600 18px/38px "Segoe UI";color:rgba(255,255,255,.7);margin-bottom:6px}
+.nav .it.on{background:rgba(255,158,56,.16);color:#fff}
+.nav .it.on::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--accent)}
+.nav .keys{white-space:nowrap;margin-top:auto;margin-bottom:10px;display:flex;flex-direction:column;gap:6px}
+.page{flex:1;min-width:0}
+.sepT{display:flex;align-items:center;gap:8px;height:17px;margin:12px 0 10px;color:var(--text)}
+.sepT::after{content:"";flex:1;height:1px;background:var(--sep)}
+.sepT.first{margin-top:4px}
+.frame{height:25px;border-radius:4px;background:var(--frame);padding:0 7px;line-height:25px;position:relative;flex:none}
+.combo{padding-right:32px}
+.combo::after{content:"";position:absolute;right:0;top:0;width:25px;height:25px;background:var(--btn);border-radius:0 4px 4px 0}
+.combo i{position:absolute;right:8px;top:9px;border:4.5px solid transparent;border-top:7px solid #fff;border-bottom:0;z-index:1}
+.slider{position:relative;text-align:center;padding:0}
+.slider b{position:absolute;top:2px;bottom:2px;width:9px;border-radius:4px;background:var(--grab)}
+.slider span{position:relative}
+.btn{height:25px;border-radius:4px;background:var(--btn);padding:0 7px;line-height:25px;text-align:center;flex:none}
+.btn.hov{background:var(--btn-h)}
+.btn.plain{background:rgba(41,43,54,1)}
+.chip{height:25px;border-radius:13px;padding:0 12px;line-height:25px;background:rgb(41,43,54);flex:none}
+.chip.on{background:rgba(255,158,56,.85);color:rgb(20,15,10)}
+.tog{width:45px;height:25px;border-radius:13px;background:var(--off);position:relative;flex:none;opacity:.85}
+.tog::after{content:"";position:absolute;left:3px;top:3px;width:19px;height:19px;border-radius:50%;background:rgba(255,255,255,.94)}
+.tog.on{background:var(--accent);opacity:1}
+.tog.on::after{left:23px}
+.foot{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+.tip{color:var(--dis);line-height:20px;align-items:flex-start}
+.medal{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.at{background:#33d14c}.gold{background:#ffd133}.silver{background:#b8c2cc}.none{background:#555a66}
+table{border-collapse:collapse;width:100%}
+td,th{padding:0 8px;height:31px;text-align:left;font-weight:400}
+th{color:var(--dis);height:25px}
+tr.alt td{background:rgba(255,255,255,.04)}
+td.r,th.r{text-align:right}
+.tl{width:100%;overflow:hidden}
+.child{border-radius:6px}
+</style></head>
+<body>
+<script>document.body.dataset.s=new URLSearchParams(location.search).get('s')||'1';</script>
+
+<!-- shared background: no real TrackMania still found, so a stylised stand-in -->
+<template id="bgsvg">
+<svg viewBox="0 0 1920 1080" preserveAspectRatio="none">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2c5fa8"/><stop offset=".55" stop-color="#9cc3e6"/><stop offset="1" stop-color="#e8c9a0"/></linearGradient>
+    <linearGradient id="gr" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4d6b3a"/><stop offset="1" stop-color="#26381d"/></linearGradient>
+    <linearGradient id="rd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4d55"/><stop offset="1" stop-color="#2a2c32"/></linearGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <polygon points="0,560 260,430 520,540 800,400 1100,520 1400,420 1700,530 1920,470 1920,620 0,620" fill="#5d7c93"/>
+  <rect y="560" width="1920" height="520" fill="url(#gr)"/>
+  <polygon points="900,580 1040,580 1500,1080 380,1080" fill="url(#rd)"/>
+  <polygon points="900,580 912,580 700,1080 560,1080" fill="#d94a2b"/>
+  <polygon points="1028,580 1040,580 1500,1080 1340,1080" fill="#e8e8e8"/>
+  <polygon points="965,590 975,590 1000,1080 940,1080" fill="#6a6d75"/>
+  <polygon points="780,760 1130,760 1190,860 720,860" fill="#1a1c20"/>
+  <rect x="800" y="800" width="320" height="130" rx="22" fill="#c92d2d"/>
+  <polygon points="840,800 1080,800 1050,745 870,745" fill="#222831"/>
+</svg>
+</template>
+
+<!-- 1: Start panel -->
+<div class="scr" id="s1">
+  <div class="bg menu" data-bg></div>
+  <div class="win" style="left:560px;top:150px;width:800px;height:780px;display:flex;flex-direction:column">
+    <div class="hdr">
+      <span class="title">LEGACY RANDOMIZER</span><span class="dis">v0.1.0</span>
+      <span class="sp"></span>
+      <span class="dis">60 FPS</span><span class="x">&times;</span>
+    </div>
+    <div class="body" style="flex:1">
+      <div class="nav">
+        <div class="it on">Run</div><div class="it">Settings</div><div class="it">About</div>
+        <div class="keys">
+          <span class="dis">F8  menu</span><span class="dis">F9  skip map</span><span class="dis">F10 gold skip</span><span class="dis">Changes save automatically</span>
+        </div>
+      </div>
+      <div class="page">
+        <div class="sepT first">Game</div>
+        <div class="row"><span class="toggle" style="color:#4de07a">&#9679;</span><span>TrackMania Nations ESWC</span><span class="dis">detected, 2 mods loaded</span></div>
+
+        <div class="sepT">Mode</div>
+        <div class="row"><span class="chip on">Random Map Challenge</span><span class="chip">Random Map Survival</span><span class="chip">Free play</span></div>
+        <div class="row"><div class="frame slider" style="width:300px"><b style="left:60%"></b><span style="margin-right:80px">60 min</span></div><span>Time limit</span></div>
+        <div class="row tip">Hit as many goal medals as you can before the timer runs out. Skip costs nothing.</div>
+
+        <div class="sepT">Goal medal</div>
+        <div class="row"><span class="chip on">Author</span><span class="chip">Gold</span><span class="dis">Gold skip is also available in Challenge</span></div>
+
+        <div class="sepT">Map filters</div>
+        <div class="row"><div class="frame combo" style="width:300px">Auto (from game)<i></i></div><span>TMX site</span></div>
+        <div class="row"><div class="frame slider" style="width:300px"><b style="left:46%"></b><span style="margin-left:60px">1:30</span></div><span>Max length</span></div>
+        <div class="row"><div class="frame combo" style="width:300px">Any<i></i></div><span>Environment</span></div>
+        <div class="row"><span class="tog on"></span><span>Exclude unlimiter maps</span></div>
+        <div class="row"><span class="tog on"></span><span>Skip maps without an author time</span></div>
+
+        <div style="flex:1"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+      <div class="btn hov" style="width:140px">Start</div>
+      <div class="btn" style="width:100px;background:rgba(41,43,54,1)">Close</div>
+      <span class="dis" style="margin-left:12px">Esc  close</span>
+    </div>
+  </div>
+</div>
+
+<!-- 2: HUD -->
+<div class="scr" id="s2">
+  <div class="bg" data-bg></div>
+  <div class="win" style="left:16px;top:16px;width:330px;background:rgba(15,18,23,.55);padding:12px 14px">
+    <div class="row" style="margin-bottom:2px"><span class="title" style="font-size:22px">47:12</span><span style="flex:1"></span><span class="dis">Challenge, Author</span></div>
+    <div class="row" style="margin-bottom:0"><span style="font-weight:600">Speedy Tech 3</span></div>
+    <div class="row dis" style="margin-bottom:8px">by Nadeo_Wolf</div>
+    <div class="sepT" style="margin:4px 0 8px"></div>
+    <div class="row" style="margin-bottom:2px"><span class="medal at"></span><span>AT</span><span style="flex:1"></span><span>0:42.31</span></div>
+    <div class="row" style="margin-bottom:8px"><span class="medal gold"></span><span>Gold</span><span style="flex:1"></span><span>0:46.80</span></div>
+    <div class="sepT" style="margin:4px 0 8px"></div>
+    <div class="row"><span>AT 7</span><span style="width:6px"></span><span>Gold 3</span><span style="width:6px"></span><span>Skips 2/&infin;</span></div>
+    <div class="row" style="margin-bottom:0;gap:8px"><div class="btn" style="flex:1">Skip</div><div class="btn" style="flex:1">Gold skip</div></div>
+    <div class="row dis" style="margin:8px 0 0"><span>F9  skip</span><span style="width:8px"></span><span>F10 gold skip</span></div>
+  </div>
+</div>
+
+<!-- 3: Results -->
+<div class="scr" id="s3">
+  <div class="bg menu" data-bg></div>
+  <div class="win" style="left:560px;top:130px;width:800px;height:820px;display:flex;flex-direction:column">
+    <div class="hdr"><span class="title">RUN FINISHED</span><span class="dis">Random Map Challenge, 60 min</span><span class="sp"></span><span class="x">&times;</span></div>
+    <div class="sepT first">Totals</div>
+    <div class="row" style="gap:28px;margin-bottom:4px">
+      <span><span class="medal at"></span>AT <b style="font-weight:600">7</b></span>
+      <span><span class="medal gold"></span>Gold <b style="font-weight:600">3</b></span>
+      <span>Skips <b style="font-weight:600">2</b></span>
+      <span>Maps played <b style="font-weight:600">12</b></span>
+    </div>
+    <div class="row dis">Total time 60:00     Goal medal: Author     TMX site: tmnf.exchange</div>
+    <div class="sepT">Maps</div>
+    <div style="flex:1;overflow:hidden">
+    <table>
+      <tr><th>#</th><th>Map</th><th>Author</th><th>Medal</th><th class="r">Time</th></tr>
+      <tr class="alt"><td>1</td><td>Speedy Tech 3</td><td>Nadeo_Wolf</td><td><span class="medal at"></span>AT</td><td class="r">0:42.31</td></tr>
+      <tr><td>2</td><td>Blue Lagoon Run</td><td>kimi.tm</td><td><span class="medal at"></span>AT</td><td class="r">1:03.77</td></tr>
+      <tr class="alt"><td>3</td><td>Dirt Devil</td><td>Rallyfan</td><td><span class="medal gold"></span>Gold</td><td class="r">0:58.12</td></tr>
+      <tr><td>4</td><td>Tunnel Vision</td><td>zeroTM</td><td><span class="medal none"></span>Skipped</td><td class="r dis">-</td></tr>
+      <tr class="alt"><td>5</td><td>Pipe Dream</td><td>Hylis</td><td><span class="medal at"></span>AT</td><td class="r">0:37.04</td></tr>
+      <tr><td>6</td><td>Stadium Sprint 12</td><td>Zkillbill</td><td><span class="medal at"></span>AT</td><td class="r">0:29.88</td></tr>
+      <tr class="alt"><td>7</td><td>Coast Highway</td><td>mdmx</td><td><span class="medal gold"></span>Gold</td><td class="r">1:12.50</td></tr>
+      <tr><td>8</td><td>Snow Slide Classic</td><td>Skyla</td><td><span class="medal at"></span>AT</td><td class="r">0:51.23</td></tr>
+      <tr class="alt"><td>9</td><td>Loop de Loop</td><td>Nadeo_Wolf</td><td><span class="medal none"></span>Skipped</td><td class="r dis">-</td></tr>
+      <tr><td>10</td><td>Fullspeed Alley</td><td>Rallyfan</td><td><span class="medal gold"></span>Gold</td><td class="r">0:44.65</td></tr>
+      <tr class="alt"><td>11</td><td>Desert Drift 2</td><td>kimi.tm</td><td><span class="medal at"></span>AT</td><td class="r">1:20.09</td></tr>
+      <tr><td>12</td><td>Last Chance</td><td>zeroTM</td><td><span class="medal at"></span>AT</td><td class="r">0:47.31</td></tr>
+    </table>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+      <div class="btn" style="width:140px">Save summary</div>
+      <div class="btn hov" style="width:120px">New run</div>
+      <span class="dis" style="margin-left:12px">Saved to Legacy Randomizer/runs/</span>
+    </div>
+  </div>
+</div>
+
+<!-- 4: Settings -->
+<div class="scr" id="s4">
+  <div class="bg menu" data-bg></div>
+  <div class="win" style="left:560px;top:150px;width:800px;height:780px;display:flex;flex-direction:column">
+    <div class="hdr">
+      <span class="title">LEGACY RANDOMIZER</span><span class="dis">v0.1.0</span>
+      <span class="sp"></span><span class="dis">60 FPS</span><span class="x">&times;</span>
+    </div>
+    <div class="body" style="flex:1">
+      <div class="nav">
+        <div class="it">Run</div><div class="it on">Settings</div><div class="it">About</div>
+        <div class="keys">
+          <span class="dis">F8  menu</span><span class="dis">F9  skip map</span><span class="dis">F10 gold skip</span><span class="dis">Changes save automatically</span>
+        </div>
+      </div>
+      <div class="page">
+        <div class="sepT first">Hotkeys</div>
+        <div class="row"><div class="btn plain" style="width:110px;background:var(--frame)">F8</div><span>Open menu</span></div>
+        <div class="row"><div class="btn plain" style="width:110px;background:var(--frame)">F9</div><span>Skip map</span></div>
+        <div class="row"><div class="btn plain" style="width:110px;background:var(--frame)">F10</div><span>Gold skip</span></div>
+        <div class="row"><div class="btn plain" style="width:110px;background:var(--frame)">F11</div><span>Show / hide HUD</span></div>
+        <div class="row tip">Click a key, then press the new one.</div>
+
+        <div class="sepT">Replays</div>
+        <div class="row"><span class="tog on"></span><span>Save replay of every goal medal</span></div>
+        <div class="row"><span class="tog"></span><span>Save replay of skipped maps</span></div>
+
+        <div class="sepT">Maps</div>
+        <div class="row"><div class="frame combo" style="width:300px">Auto (from game)<i></i></div><span>TMX site override</span></div>
+
+        <div class="sepT">Interface</div>
+        <div class="row"><div class="frame slider" style="width:300px"><b style="left:33%"></b><span style="margin-left:80px">100 %</span></div><span>UI scale</span></div>
+        <div class="row"><div class="frame combo" style="width:300px">English<i></i></div><span>Language</span></div>
+        <div style="flex:1"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+      <div class="btn plain" style="width:160px">Reset to defaults</div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelector('#s'+document.body.dataset.s+' [data-bg]').innerHTML=document.getElementById('bgsvg').innerHTML;
+</script>
+</body></html>

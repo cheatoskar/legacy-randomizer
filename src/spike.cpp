@@ -1,7 +1,7 @@
-// legacy_randomizer.dll, ESWC spike: can a mod start a map file in solo from the main menu?
+// legacy_randomizer.dll, spike: can a mod start a map file in solo from the main menu? (ESWC 1.80, Sunrise repack)
 //
 // TrackMania Nations ESWC, unofficial 1.80 patch (exe 0.1.7.9, PE timestamp 0x5ce7272f).
-// What the game does for "Play Track > Solo > OK" (found with Ghidra, compared with TMNF symbols):
+// Offsets per exe are in kGames; the ESWC values are explained here. What the game does for "Play Track > Solo > OK" (found with Ghidra, compared with TMNF symbols):
 //   - CGameCtnApp is the global at 0xcaee50; the menus object keeps it at menus+0x374.
 //   - CGameCtnChallengeInfo::s_ChallengeInfos is the buffer {count, items, capacity} at 0xcaed34.
 //   - CGameCtnChallengeInfo::RefreshFromDisk(folders, 0, 0) (0x703990, cdecl) re-reads the track
@@ -19,20 +19,30 @@
 
 namespace {
 
-constexpr DWORD kExeTimestamp = 0x5ce7272f;
-constexpr uintptr_t kApp = 0x00caee50;            // CGameCtnApp* (set in its constructor)
-constexpr uintptr_t kChallengeInfos = 0x00caed34; // {count, CGameCtnChallengeInfo**, capacity}
-constexpr uintptr_t kRefreshFromDisk = 0x00703990;
-constexpr uintptr_t kSortByName = 0x00703b00;
-constexpr uintptr_t kGameMalloc = 0x004044b0;
-constexpr uintptr_t kGameFree = 0x004045b0;
-constexpr size_t kAppFolders = 0x1f0;     // CSystemDataFolders*
-constexpr size_t kAppChallengeType = 0x2e8;
-constexpr size_t kMenusApp = 0x374;
-constexpr size_t kMenusResult = 0x2e4;
-constexpr size_t kMenusChosen = 0x3a4;
-constexpr size_t kMenusMode = 0x3e4;
-constexpr int kResultPlay = 0xf;
+// Per exe: where the game keeps what the "Play Track > Solo > OK" path touches.
+struct Game {
+    const char* name;
+    DWORD timestamp;          // PE header TimeDateStamp of the supported exe
+    uintptr_t app;            // global CGameCtnApp* (stored by its constructor)
+    uintptr_t challengeInfos; // CGameCtnChallengeInfo::s_ChallengeInfos {count, items, capacity}
+    uintptr_t refreshFromDisk;
+    uintptr_t sortByName;
+    uintptr_t gameMalloc, gameFree;
+    size_t appFolders, appChallengeType;
+    size_t menusApp, menusResult, menusChosen, menusMode;
+    int modeValue, resultPlay;
+};
+
+const Game kGames[] = {
+    // TrackMania Nations ESWC, unofficial 1.80 (0.1.7.9); sha256 983bd127...
+    {"TrackMania Nations ESWC 1.80", 0x5ce7272f, 0x00caee50, 0x00caed34, 0x00703990, 0x00703b00, 0x004044b0,
+     0x004045b0, 0x1f0, 0x2e8, 0x374, 0x2e4, 0x3a4, 0x3e4, 0x13, 0xf},
+    // TrackMania Sunrise, Win10 community repack TmSunrise.exe; sha256 e59dfc7e...
+    // MenuPlayChallenge_Solo 0x7bb660, MenuPlayChallenge_OnOk 0x7bc230, SetChallengeType 0x824f00
+    {"TrackMania Sunrise (Win10 repack)", 0x5cc8f0cf, 0x00bcce50, 0x00bcd1e8, 0x0085fce0, 0x0085fe50, 0x00402cc0,
+     0x00402b90, 0x1b8, 0x2a0, 0x2e8, 0x258, 0x318, 0x354, 2, 1},
+};
+const Game* g = nullptr;
 
 HANDLE g_log = INVALID_HANDLE_VALUE;
 DWORD g_mainThread = 0;
@@ -109,7 +119,7 @@ void* findMenus(void* app) {
         __try {
             p = at<void*>(app, off);
             if (!p || reinterpret_cast<uintptr_t>(p) < 0x10000) continue;
-            if (at<void*>(p, kMenusApp) == app) {
+            if (at<void*>(p, g->menusApp) == app) {
                 logLine("  menus candidate: app+0x%03X = %p", (unsigned)off, p);
                 if (!found) found = p;
             }
@@ -121,16 +131,16 @@ void* findMenus(void* app) {
 
 void dumpState() {
     __try {
-        void* app = *reinterpret_cast<void**>(kApp);
-        Buffer* infos = reinterpret_cast<Buffer*>(kChallengeInfos);
+        void* app = *reinterpret_cast<void**>(g->app);
+        Buffer* infos = reinterpret_cast<Buffer*>(g->challengeInfos);
         logLine("dump: app=%p challengeInfos=%u", app, infos->count);
         if (!app) return;
-        logLine("  app+0x2e8 (challenge type)=%d folders=%p", at<int>(app, kAppChallengeType), at<void*>(app, kAppFolders));
+        logLine("  app+0x2e8 (challenge type)=%d folders=%p", at<int>(app, g->appChallengeType), at<void*>(app, g->appFolders));
         void* menus = findMenus(app);
         if (menus) {
-            Buffer& chosen = at<Buffer>(menus, kMenusChosen);
-            logLine("  menus=%p result=%d mode=0x%X chosen={%u,%p,%u}", menus, at<int>(menus, kMenusResult),
-                    at<int>(menus, kMenusMode), chosen.count, chosen.items, chosen.capacity);
+            Buffer& chosen = at<Buffer>(menus, g->menusChosen);
+            logLine("  menus=%p result=%d mode=0x%X chosen={%u,%p,%u}", menus, at<int>(menus, g->menusResult),
+                    at<int>(menus, g->menusMode), chosen.count, chosen.items, chosen.capacity);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         logLine("dump: exception 0x%08X while reading", GetExceptionCode());
@@ -142,19 +152,19 @@ int playInfo(void* app, void* menus, void* info) {
     __try {
         using MallocFn = void*(__cdecl*)(size_t);
         using FreeFn = void(__cdecl*)(void*);
-        Buffer& chosen = at<Buffer>(menus, kMenusChosen);
+        Buffer& chosen = at<Buffer>(menus, g->menusChosen);
         if (chosen.capacity < 1 || !chosen.items) {
-            void** items = static_cast<void**>(reinterpret_cast<MallocFn>(kGameMalloc)(4 * sizeof(void*)));
+            void** items = static_cast<void**>(reinterpret_cast<MallocFn>(g->gameMalloc)(4 * sizeof(void*)));
             if (!items) return 0;
-            if (chosen.items) reinterpret_cast<FreeFn>(kGameFree)(chosen.items);
+            if (chosen.items) reinterpret_cast<FreeFn>(g->gameFree)(chosen.items);
             chosen.items = items;
             chosen.capacity = 4;
         }
         chosen.items[0] = info;
         chosen.count = 1;
-        at<int>(app, kAppChallengeType) = 3;
-        at<int>(menus, kMenusMode) = 0x13;
-        at<int>(menus, kMenusResult) = kResultPlay;
+        at<int>(app, g->appChallengeType) = 3;
+        at<int>(menus, g->menusMode) = g->modeValue;
+        at<int>(menus, g->menusResult) = g->resultPlay;
         return 1;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         logLine("play: exception 0x%08X while setting the menu", GetExceptionCode());
@@ -164,15 +174,15 @@ int playInfo(void* app, void* menus, void* info) {
 
 int refreshAndFindNew(void* app, void** newInfo) {
     __try {
-        Buffer* infos = reinterpret_cast<Buffer*>(kChallengeInfos);
+        Buffer* infos = reinterpret_cast<Buffer*>(g->challengeInfos);
         const uint32_t before = infos->count;
         void** snapshot = static_cast<void**>(HeapAlloc(GetProcessHeap(), 0, (before + 1) * sizeof(void*)));
         if (!snapshot) return -1;
         for (uint32_t i = 0; i < before; i++) snapshot[i] = infos->items[i];
         using RefreshFn = void(__cdecl*)(void*, int, int);
         using SortFn = void(__cdecl*)();
-        reinterpret_cast<RefreshFn>(kRefreshFromDisk)(at<void*>(app, kAppFolders), 0, 0);
-        reinterpret_cast<SortFn>(kSortByName)();
+        reinterpret_cast<RefreshFn>(g->refreshFromDisk)(at<void*>(app, g->appFolders), 0, 0);
+        reinterpret_cast<SortFn>(g->sortByName)();
         int added = 0;
         for (uint32_t i = 0; i < infos->count; i++) {
             void* p = infos->items[i];
@@ -195,7 +205,7 @@ int refreshAndFindNew(void* app, void** newInfo) {
 void playTestMap() {
     void* app = nullptr;
     __try {
-        app = *reinterpret_cast<void**>(kApp);
+        app = *reinterpret_cast<void**>(g->app);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
     if (!app) {
@@ -215,7 +225,12 @@ void playTestMap() {
     GetPrivateProfileStringW(L"spike", L"MapFile", L"", src, MAX_PATH, ini);
     if (!src[0]) {
         swprintf_s(ncDir, L"%sGameData\\Tracks\\Challenges\\Downloaded\\_NostalgicCompletionist\\", dir);
-        if (!findMap(ncDir, src, MAX_PATH, 2)) {
+        bool found = findMap(ncDir, src, MAX_PATH, 2);
+        if (!found) {
+            swprintf_s(ncDir, L"%sGameData\\Tracks\\Challenges\\My Challenges\\", dir);
+            found = findMap(ncDir, src, MAX_PATH, 2);
+        }
+        if (!found) {
             logLine("play: no MapFile in the ini and no map below %ls", ncDir);
             return;
         }
@@ -235,7 +250,7 @@ void playTestMap() {
         logLine("play: expected exactly 1 new challenge info, got %d - not starting", added);
         return;
     }
-    if (playInfo(app, menus, info)) logLine("play: menu set to play info %p (result 0x%X)", info, kResultPlay);
+    if (playInfo(app, menus, info)) logLine("play: menu set to play info %p (result 0x%X)", info, g->resultPlay);
 }
 
 LRESULT CALLBACK getMsgProc(int code, WPARAM wParam, LPARAM lParam) {
@@ -254,11 +269,15 @@ LRESULT CALLBACK getMsgProc(int code, WPARAM wParam, LPARAM lParam) {
     return CallNextHookEx(g_msgHook, code, wParam, lParam);
 }
 
-bool exeMatches() {
+// The supported game this process is, by PE timestamp (exe loaded at its preferred base), or nullptr.
+const Game* detectGame(DWORD* timestamp) {
     auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(GetModuleHandleW(nullptr));
     auto* nt = reinterpret_cast<IMAGE_NT_HEADERS32*>(reinterpret_cast<char*>(dos) + dos->e_lfanew);
-    return nt->FileHeader.TimeDateStamp == kExeTimestamp && nt->OptionalHeader.ImageBase == 0x400000 &&
-           reinterpret_cast<uintptr_t>(dos) == 0x400000;
+    *timestamp = nt->FileHeader.TimeDateStamp;
+    if (reinterpret_cast<uintptr_t>(dos) != 0x400000 || nt->OptionalHeader.ImageBase != 0x400000) return nullptr;
+    for (const Game& game : kGames)
+        if (game.timestamp == *timestamp) return &game;
+    return nullptr;
 }
 
 } // namespace
@@ -271,11 +290,14 @@ extern "C" int __cdecl LegacyRandomizerInit(unsigned) {
         g_log = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS,
                             FILE_ATTRIBUTE_NORMAL, nullptr);
     }
-    logLine("---- legacy_randomizer ESWC spike start ----");
-    if (!exeMatches()) {
-        logLine("not TmNationsESWC 0.1.7.9 (unofficial 1.80) - inactive");
+    logLine("---- legacy_randomizer spike start ----");
+    DWORD timestamp = 0;
+    g = detectGame(&timestamp);
+    if (!g) {
+        logLine("unsupported exe (PE timestamp 0x%08lX) - inactive", timestamp);
         return 0;
     }
+    logLine("game: %s", g->name);
     g_mainThread = GetCurrentThreadId();
     g_msgHook = SetWindowsHookExW(WH_GETMESSAGE, getMsgProc, nullptr, g_mainThread);
     logLine(g_msgHook ? "ready: Shift+F11 = log state, F11 = play a test map in solo (main menu only)" : "key hook failed");
