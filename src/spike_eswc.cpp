@@ -10,7 +10,7 @@
 //   - MenuPlayChallenge_Solo (0x69f8b0): app+0x2e8 = 3 (challenge type), menus+0x3e4 = 0x13.
 //   - MenuChooseChallenge_OnOk (0x6a0480): menus+0x3a4 = the chosen infos {count, items, capacity},
 //     then menus+0x2e4 = 0xf. The menu loop returns that result and the game plays the challenge.
-// F7 logs that state; F8 copies a map into Tracks\Challenges\Downloaded\_LegacyRandomizer and does
+// Shift+F11 logs that state; F11 copies a map into Tracks\Challenges\Downloaded\_LegacyRandomizer and does
 // the steps above. Only in the main menu. Nothing is patched; no hooks into game code.
 #include <windows.h>
 #include <stdarg.h>
@@ -123,7 +123,7 @@ void dumpState() {
     __try {
         void* app = *reinterpret_cast<void**>(kApp);
         Buffer* infos = reinterpret_cast<Buffer*>(kChallengeInfos);
-        logLine("F7: app=%p challengeInfos=%u", app, infos->count);
+        logLine("dump: app=%p challengeInfos=%u", app, infos->count);
         if (!app) return;
         logLine("  app+0x2e8 (challenge type)=%d folders=%p", at<int>(app, kAppChallengeType), at<void*>(app, kAppFolders));
         void* menus = findMenus(app);
@@ -133,7 +133,7 @@ void dumpState() {
                     at<int>(menus, kMenusMode), chosen.count, chosen.items, chosen.capacity);
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        logLine("F7: exception 0x%08X while reading", GetExceptionCode());
+        logLine("dump: exception 0x%08X while reading", GetExceptionCode());
     }
 }
 
@@ -157,7 +157,7 @@ int playInfo(void* app, void* menus, void* info) {
         at<int>(menus, kMenusResult) = kResultPlay;
         return 1;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        logLine("F8: exception 0x%08X while setting the menu", GetExceptionCode());
+        logLine("play: exception 0x%08X while setting the menu", GetExceptionCode());
         return 0;
     }
 }
@@ -183,11 +183,11 @@ int refreshAndFindNew(void* app, void** newInfo) {
                 *newInfo = p;
             }
         }
-        logLine("F8: challenge infos %u -> %u, %d new", before, infos->count, added);
+        logLine("play: challenge infos %u -> %u, %d new", before, infos->count, added);
         HeapFree(GetProcessHeap(), 0, snapshot);
         return added;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        logLine("F8: exception 0x%08X in RefreshFromDisk", GetExceptionCode());
+        logLine("play: exception 0x%08X in RefreshFromDisk", GetExceptionCode());
         return -1;
     }
 }
@@ -199,12 +199,12 @@ void playTestMap() {
     } __except (EXCEPTION_EXECUTE_HANDLER) {
     }
     if (!app) {
-        logLine("F8: no app yet");
+        logLine("play: no app yet");
         return;
     }
     void* menus = findMenus(app);
     if (!menus) {
-        logLine("F8: menus object not found, nothing changed");
+        logLine("play: menus object not found, nothing changed");
         return;
     }
     wchar_t dir[MAX_PATH], src[MAX_PATH], dst[MAX_PATH], ncDir[MAX_PATH];
@@ -216,7 +216,7 @@ void playTestMap() {
     if (!src[0]) {
         swprintf_s(ncDir, L"%sGameData\\Tracks\\Challenges\\Downloaded\\_NostalgicCompletionist\\", dir);
         if (!findMap(ncDir, src, MAX_PATH, 2)) {
-            logLine("F8: no MapFile in the ini and no map below %ls", ncDir);
+            logLine("play: no MapFile in the ini and no map below %ls", ncDir);
             return;
         }
     }
@@ -225,25 +225,30 @@ void playTestMap() {
     CreateDirectoryW(outDir, nullptr);
     swprintf_s(dst, L"%sLR_%lu.Challenge.Gbx", outDir, GetTickCount());
     if (!CopyFileW(src, dst, TRUE)) {
-        logLine("F8: copy failed (%lu): %ls", GetLastError(), src);
+        logLine("play: copy failed (%lu): %ls", GetLastError(), src);
         return;
     }
-    logLine("F8: copied %ls -> %ls", src, dst);
+    logLine("play: copied %ls -> %ls", src, dst);
     void* info = nullptr;
     int added = refreshAndFindNew(app, &info);
     if (added != 1 || !info) {
-        logLine("F8: expected exactly 1 new challenge info, got %d - not starting", added);
+        logLine("play: expected exactly 1 new challenge info, got %d - not starting", added);
         return;
     }
-    if (playInfo(app, menus, info)) logLine("F8: menu set to play info %p (result 0x%X)", info, kResultPlay);
+    if (playInfo(app, menus, info)) logLine("play: menu set to play info %p (result 0x%X)", info, kResultPlay);
 }
 
 LRESULT CALLBACK getMsgProc(int code, WPARAM wParam, LPARAM lParam) {
     if (code == HC_ACTION && wParam == PM_REMOVE) {
         const MSG* msg = reinterpret_cast<const MSG*>(lParam);
         if (msg->message == WM_KEYDOWN && !(msg->lParam & (1 << 30))) {
-            if (msg->wParam == VK_F7) dumpState();
-            if (msg->wParam == VK_F8) playTestMap();
+            // F11: TM Vibrant Shaders uses F5-F8 and F12, eswc-autosave F9
+            if (msg->wParam == VK_F11) {
+                if (GetKeyState(VK_SHIFT) < 0)
+                    dumpState();
+                else
+                    playTestMap();
+            }
         }
     }
     return CallNextHookEx(g_msgHook, code, wParam, lParam);
@@ -273,7 +278,7 @@ extern "C" int __cdecl LegacyRandomizerInit(unsigned) {
     }
     g_mainThread = GetCurrentThreadId();
     g_msgHook = SetWindowsHookExW(WH_GETMESSAGE, getMsgProc, nullptr, g_mainThread);
-    logLine(g_msgHook ? "ready: F7 = log state, F8 = play a test map in solo (main menu only)" : "key hook failed");
+    logLine(g_msgHook ? "ready: Shift+F11 = log state, F11 = play a test map in solo (main menu only)" : "key hook failed");
     g_ok = g_msgHook != nullptr;
     return g_ok ? 1 : 0;
 }
