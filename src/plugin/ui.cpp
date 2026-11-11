@@ -786,10 +786,10 @@ void Plugin::drawHud() {
 
         ImGui::Separator();
         medalDot(kAuthor);
-        ImGui::Text("%d", s->authorCount());
+        ImGui::Text("AT %d", s->authorCount());
         ImGui::SameLine(0, 12 * sc);
         medalDot(kGold);
-        ImGui::Text("%d", s->goldCount());
+        ImGui::Text("Gold %d", s->goldCount());
         ImGui::SameLine(0, 12 * sc);
         int left = s->freeSkipsLeft();
         if (left < 0) ImGui::Text("Skips %d", s->skipCount());
