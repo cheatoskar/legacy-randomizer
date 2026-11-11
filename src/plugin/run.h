@@ -116,6 +116,7 @@ private:
     bool reloading_ = false;
     bool manualLeave_ = false;  // the host can't leave the map: the player does it
     bool replayTried_ = false;
+    bool hostHasRaceEvents_ = false;  // seen RACE_START/CHECKPOINT/FINISH from this host at least once
     std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);  // guards queued game-thread calls
     std::string loadedUid_;
     double lastTick_ = 0, advanceAt_ = 0, loadSentAt_ = 0, leaveSentAt_ = 0, retryAt_ = 0, goalAt_ = 0;

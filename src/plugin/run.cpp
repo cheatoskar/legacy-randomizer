@@ -259,7 +259,7 @@ void RunController::pump() {
         double age = now - loadSentAt_;
         // hosts without race events (Sunrise in host 0.1.0): the map counts as started once it is
         // loaded and the game is in the solo race for 2 s
-        if (pending_ && mapLoadedAt_ > loadSentAt_ && gs == GameState::SoloRace && now - mapLoadedAt_ > 2000 &&
+        if (!hostHasRaceEvents_ && pending_ && mapLoadedAt_ > loadSentAt_ && gs == GameState::SoloRace && now - mapLoadedAt_ > 2000 &&
             (loadedUid_.empty() || pending_->uid.empty() || loadedUid_ == pending_->uid)) {
             host_.log(LogInfo, "no RACE_START from the host: starting the map from MAP_LOADED");
             beginMap();
@@ -291,8 +291,12 @@ void RunController::pump() {
     case Phase::Playing:
         if (userLeft_ && gs == GameState::MainMenu && !reloading_)
             notice_ = "You left the map. Resume it or skip it.";
-        else if (host_.game() == HostGame::Sunrise && notice_.empty())
+        // hosts that deliver race events on Sunrise (host `next`) need no hint
+        else if (host_.game() == HostGame::Sunrise && !hostHasRaceEvents_ && notice_.empty() &&
+                 host_.nowMs() - mapLoadedAt_ > 5000)
             notice_ = "Sunrise: finish detection not available yet, skip manually.";
+        else if (hostHasRaceEvents_ && notice_ == "Sunrise: finish detection not available yet, skip manually.")
+            notice_.clear();
         return;
     case Phase::Idle:
     case Phase::Over: return;
@@ -479,6 +483,8 @@ void RunController::endRun(const char* by) {
 // ------------------------------------------------------------------ game events
 
 void RunController::onEvent(const GameEvent& e) {
+    if (e.type == EventType::RaceStart || e.type == EventType::Checkpoint || e.type == EventType::Finish)
+        hostHasRaceEvents_ = true;
     if (!active()) return;
     switch (e.type) {
     case EventType::MapLoaded:
