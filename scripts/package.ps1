@@ -97,10 +97,9 @@ foreach ($b in @(@('ESWC', $EswcHostZip), @('Sunrise', $SunriseHostZip))) {
     $bundles += $p
 }
 
-# SHA256SUMS.txt (zips and the DLL)
+# SHA256SUMS.txt: only the files that sit next to it in the release folder (the DLL is inside the zips)
 $lines = @()
 foreach ($f in @($pluginZip) + $bundles) { $lines += '{0} *{1}' -f (Get-FileHash $f -Algorithm SHA256).Hash.ToLower(), (Split-Path -Leaf $f) }
-$lines += '{0} *{1}' -f (Get-FileHash (Join-Path $dist $pj.dll) -Algorithm SHA256).Hash.ToLower(), $pj.dll
 [IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS.txt'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding($false)))
 
 Get-ChildItem $out | Select-Object Name, Length | Format-Table -AutoSize
