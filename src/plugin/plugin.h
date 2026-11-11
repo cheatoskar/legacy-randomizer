@@ -9,8 +9,9 @@
 #include "panels.h"
 #include "run.h"
 #include "settings.h"
+#include "site_logos.h"
 
-#define LR_PLUGIN_VERSION "0.2.0"
+#define LR_PLUGIN_VERSION "0.3.0"
 
 namespace lr {
 
@@ -49,6 +50,7 @@ public:
 
 private:
     void drawHeader();
+    void siteBadge(Site site, float size);
     void drawResults(const RunRecord& r, bool live);
     void drawMapsTable(const RunRecord& r, const char* id, float height);
     void drawMapCard(PreparedMap* m, float width, bool thumb);
@@ -64,6 +66,7 @@ private:
     History history_;
     RunController run_;
     Panels panels_;
+    SiteLogos logos_;
     UiStyle style_;
     bool dirty_ = false;
     int histSel_ = -1;

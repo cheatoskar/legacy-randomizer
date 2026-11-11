@@ -11,6 +11,7 @@ void Plugin::init() {
     history_.setFolder(host_.dataFolder());
     history_.reload();
     panels_.load(host_);
+    logos_.decode();
     hkSkip_ = host_.registerHotkey("skip", "Randomizer: skip map", "Ctrl+F9", [this] { run_.skip(); });
     hkGoldSkip_ = host_.registerHotkey("gold-skip", "Randomizer: gold skip", "Ctrl+F10", [this] { run_.goldSkip(); });
     hkHud_ = host_.registerHotkey("toggle-hud", "Randomizer: show/hide HUD", "Ctrl+F11", [this] {
@@ -22,7 +23,10 @@ void Plugin::init() {
                            " saved runs, data in " + host_.dataFolder());
 }
 
-void Plugin::shutdown() { run_.shutdown(); }
+void Plugin::shutdown() {
+    run_.shutdown();
+    logos_.release(host_);
+}
 
 void Plugin::onEvent(const GameEvent& e) { run_.onEvent(e); }
 

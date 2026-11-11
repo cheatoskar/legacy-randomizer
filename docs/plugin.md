@@ -1,7 +1,7 @@
 # Legacy Randomizer as a Horizon plugin
 
 `dist\legacy_randomizer_plugin.dll` + `dist\plugin.json` (copied from `src\plugin\plugin.json` by `build.cmd`) form the
-Horizon Host plugin `legacy-randomizer`, version 0.2.0. Install both into
+Horizon Host plugin `legacy-randomizer`, version 0.3.0. Install both into
 `<game>\horizon\plugins\legacy-randomizer\`. All paths come from the host (data folder, game folder, user folder).
 
 ## Pins
@@ -9,6 +9,7 @@ Horizon Host plugin `legacy-randomizer`, version 0.2.0. Install both into
 | What | Version |
 |---|---|
 | Plugin ABI | `src/plugin/horizon/horizon_plugin.h` + `horizon_imgui.h`, copied verbatim from `horizon-host` commit **5f24d88** (ABI 1, minor 1). Update = copy both files again, then fix `src/plugin/host_horizon.cpp` only. |
+| TMX site logos | `assets/sites/<host>.png`, 64 px, taken from TMX-Downloader 2.1 (`icons/sites`), originally the site-switch logos at `account.mania.exchange/img/logos/` (TMNF, TMU, TMN, TMS, TMO). Origin per file in `assets/sites/SOURCES.md`. They belong to Nadeo/Ubisoft and ManiaExchange and only mark which exchange the plugin uses. Embedded in the DLL as byte arrays (`src/plugin/site_logos.inc`, regenerate with `python assets/make_site_logos.py`), decoded with WIC at init, textures via `create_texture_rgba`. Nothing is fetched at runtime. |
 | Dear ImGui | **1.91.5** (`IMGUI_VERSION_NUM 19150`), `third_party/imgui` (MIT, `LICENSE.txt`), the same copy as horizon-host. Default `imconfig.h`. `HorizonPlugin_Init` returns 2 if the host reports another version. `ImTextureID` is `ImU64`. |
 
 ## Code layout
@@ -16,7 +17,7 @@ Horizon Host plugin `legacy-randomizer`, version 0.2.0. Install both into
 - `src/core/` – TMX client (now with RandomizerTMF's filters), RMC/RMS rules (`Session`, goal Author/Gold/Silver/Bronze/Finished), GBX reader (map header, embedded thumbnail, the map uid of a replay).
 - `src/plugin/host.h` – the small C++ interface the plugin needs from a host; `host_horizon.cpp` is **the only file that includes the Horizon ABI** and exports `HorizonPlugin_Info/Init/Shutdown/DrawMenu/DrawOverlay/OnEvent/SetEnabled`.
 - `panels.cpp` – the page/panel table and the window logic (below). Meant to move into the host as a shared API.
-- `ui.cpp` – the pages and HUD panels; `widgets.cpp` – segmented control, toggle switch, cards, chips, info tooltips, big button (host style colours only); `icons.cpp` – line icons drawn with ImDrawList (no icon font: plugins can't add fonts to the host's atlas; a host icon font can replace `drawIcon()`).
+- `ui.cpp` – the pages and HUD panels; `widgets.cpp` – cards (TMVS look: accent mark, icon, title), switch rows, labels above controls, the author-time range slider, dropdowns without the arrow box, the *Advanced* disclosure row, chips with icons, segmented control, info tooltips, big button (host style colours only, local pushes); `site_logos.cpp` – the TMX logos; `icons.cpp` – line icons drawn with ImDrawList (no icon font: plugins can't add fonts to the host's atlas; a host icon font can replace `drawIcon()`).
 - `run.cpp` – run state machine on top of `Session`; `fetcher.cpp` – worker thread that keeps the next map ready (and scans the autosaves); `history.cpp` – run JSON files; `tmtext.cpp` – `$`-formatted names; `image.cpp` – WIC decode.
 
 ## Pages and panels (TM Vibrant Shaders' detachable pages)
@@ -88,7 +89,19 @@ Hotkeys (host registry): `skip` Ctrl+F9, `gold-skip` Ctrl+F10, `toggle-hud` Ctrl
 - Original: experimental; the host refuses map loading there today (`NOT_SUPPORTED` → the run ends with a message).
 - `inreplays` / `inlatestauthor` / `insupporter` were not verified live.
 
-## Planned (not in 0.2)
+## 0.3 polish (UI only, run logic unchanged)
+
+- Labels above the controls (small, muted) instead of ImGui's labels on the right; switches as rows (label left, switch right).
+- Author time: one range slider (square-root scale, 5 s steps) with the values under it (`0:30 – 1:30`, *any* at the open ends).
+- Dropdowns without ImGui's arrow box (a quiet chevron), full width.
+- *Advanced* (Filters, Rules) is a subtle disclosure row with a chevron instead of a full-width header bar.
+- Run page: start card with the site logo, the mode and a one-line summary, the Start button; *Last run* has an empty state (icon + one line) and is as tall as the start card; below, *Recent runs* (from two runs on) or *How a run goes*.
+- Header: the TMX site's logo, host and game as a chip on the right.
+- Mood chips with sunrise/sun/sunset/moon icons, routes with a route icon, goal chips with medal icons in the medal colours.
+- HUD panels: TMVS overlay look (radius 10, padding 12/10); a locked panel placed right under another one follows that panel's real height, so Split has no gap between Map and Controls (or Medals and Session). Timer and Controls have taller default places for edit mode.
+- Kept: the sidebar, the page/panel table and the window logic (`panels.cpp`). Not done: tabs instead of the sidebar, mode tiles (both need restructuring).
+
+## Planned (not in 0.3)
 
 - Platform / Stunts / Puzzle modes (need a score in the `FINISH` event).
 - Discord Rich Presence.
@@ -96,6 +109,6 @@ Hotkeys (host registry): `skip` Ctrl+F9, `gold-skip` Ctrl+F10, `toggle-hud` Ctrl
 
 ## Preview without the game
 
-`build\test\ui_preview.exe` runs the real plugin code (everything except `host_horizon.cpp`) with a fake host: settings in a text file, game control that only logs and simulates map load / quit, a "Fake game" panel (finish with AT/gold/silver/slow, restart, Esc › Quit, online, +1/+10 min), F8 menu, Ctrl+F9/F10/F11. The ImGui style is TM Vibrant Shaders' (`src/overlay.cpp`) plus orange tab colours, standing in for the host style; the plugin never sets global colours (its own colours are the medal colours).
+`build\test\ui_preview.exe` runs the real plugin code (everything except `host_horizon.cpp`) with a fake host: settings in a text file, game control that only logs and simulates map load / quit, a "Fake game" panel (finish with AT/gold/silver/slow, restart, Esc › Quit, online, +1/+10 min), F8 menu, Ctrl+F9/F10/F11. The ImGui style and fonts are the Horizon host's (`horizon-host` `src/host/ui/ui_style.cpp` at 895610c: launcher tokens, accent #ff6b1a, radii 10/14/20, Segoe UI 16, Bahnschrift 28 title), so the screenshots match the host; the plugin never sets global colours (its own colours are the medal colours).
 
-`ui_preview.exe --shots docs\screenshots` renders, 1920×1080: start, filters, rules, layout editor, split HUD, compact HUD, results, history — with real nations.tm-exchange.com maps (a scripted run of three maps, about 15 requests). Options: `--game eswc|sunrise|original|tmnf|tmuf`, `--data <dir>`.
+`ui_preview.exe --shots docs\screenshots` renders (the 0.2 set is kept in `docs/screenshots/before-0.2/`), 1920×1080: start, filters, rules, layout editor, split HUD, compact HUD, results, history — with real nations.tm-exchange.com maps (a scripted run of three maps, about 15 requests). Options: `--game eswc|sunrise|original|tmnf|tmuf`, `--data <dir>`.

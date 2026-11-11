@@ -65,6 +65,11 @@ private:
     PanelState states_[16];
     int applied_[16] = {};
     ImVec2 lastDisplay_{0, 0};
+    // locked HUD panels drawn this frame: where they were meant to end and where they really end (a panel
+    // placed right under one of them follows its real height, so no gap opens when content is shorter)
+    struct Drawn { float x0, x1, savedBottom, realBottom; };
+    Drawn drawn_[16];
+    int drawnCount_ = 0;
 };
 
 } // namespace lr

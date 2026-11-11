@@ -33,8 +33,8 @@ int indexOf(const PanelDef& d) { return static_cast<int>(&d - kPanels); }
 
 struct Place { const char* key; float x, y, w, h; };
 const Place kDefaults[] = {
-    {"timer", 0.41f, 0.012f, 0.18f, 0.095f},  {"map", 0.008f, 0.012f, 0.17f, 0.315f},
-    {"medals", 0.822f, 0.012f, 0.17f, 0.25f}, {"controls", 0.008f, 0.338f, 0.17f, 0.11f},
+    {"timer", 0.41f, 0.012f, 0.18f, 0.15f},   {"map", 0.008f, 0.012f, 0.17f, 0.315f},
+    {"medals", 0.822f, 0.012f, 0.17f, 0.25f}, {"controls", 0.008f, 0.338f, 0.17f, 0.17f},
     {"session", 0.822f, 0.274f, 0.17f, 0.30f}, {"card", 0.008f, 0.012f, 0.185f, 0.56f},
 };
 
@@ -214,6 +214,7 @@ void Panels::drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool ed
     bool resized = disp.x != lastDisplay_.x || disp.y != lastDisplay_.y;
     if (resized) ++placeGen_;
     lastDisplay_ = disp;
+    drawnCount_ = 0;
     for (const PanelDef& d : kPanels) {
         const PanelState& w = state(d);
         if (!w.detached) continue;
@@ -237,6 +238,15 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     if (pos.x < 0) pos.x = 0;
     if (pos.y < 0) pos.y = 0;
     int& applied = applied_[indexOf(d)];
+    if (locked) {
+        // stacked under another locked panel (saved gap under 3 % of the screen): follow its real bottom
+        for (int i = 0; i < drawnCount_; ++i) {
+            const Drawn& o = drawn_[i];
+            float gap = w.y - o.savedBottom;
+            bool overlapX = w.x < o.x1 && w.x + w.w > o.x0;
+            if (overlapX && gap > -0.005f && gap < 0.03f) pos.y = o.realBottom + 8.0f * ui::style().scale;
+        }
+    }
     const ImGuiCond cond = (locked || applied != placeGen_) ? ImGuiCond_Always : ImGuiCond_Appearing;
     applied = placeGen_;
     ImGui::SetNextWindowPos(pos, cond);
@@ -253,8 +263,18 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     }
     bool open = true;
     const std::string name = std::string(d.title) + "##lrwin_" + d.key;
+    // HUD panels in TMVS's overlay look: small radius, tight padding (the host's menu windows are rounder)
+    if (d.hud) {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f * ui::style().scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * ui::style().scale, 10.0f * ui::style().scale));
+    }
     const bool visible = ImGui::Begin(name.c_str(), locked ? nullptr : &open, flags);
+    if (d.hud) ImGui::PopStyleVar(2);
     const bool collapsed = ImGui::IsWindowCollapsed();
+    if (locked && drawnCount_ < 16) {
+        float bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
+        drawn_[drawnCount_++] = {w.x, w.x + w.w, w.y + w.h, bottom};
+    }
     if (!locked && !ImGui::IsMouseDown(0)) {
         const ImVec2 at = ImGui::GetWindowPos(), ext = ImGui::GetWindowSize();
         float nx = at.x / disp.x, ny = at.y / disp.y, nw = ext.x / disp.x, nh = ext.y / disp.y;

@@ -353,74 +353,117 @@ void resetDevice() {
     ImGui_ImplDX9_CreateDeviceObjects();
 }
 
-// TM Vibrant Shaders' menu style (src/overlay.cpp), as a stand-in for the Horizon host's shared style.
-UiStyle applyTmvsStyle(float scale) {
+// The Horizon host's menu style (horizon-host src/host/ui/ui_style.cpp at 895610c: TM Horizon launcher
+// tokens, accent #ff6b1a, radii 10/14/20, Segoe UI 16 + Bahnschrift 28), so the screenshots show the
+// plugin as it looks inside the host.
+UiStyle applyHostStyle(float s) {
+    ImGuiStyle& st = ImGui::GetStyle();
+    st = ImGuiStyle();
+    st.WindowPadding = ImVec2(16.0f * s, 16.0f * s);
+    st.FramePadding = ImVec2(12.0f * s, 8.0f * s);
+    st.CellPadding = ImVec2(12.0f * s, 8.0f * s);
+    st.ItemSpacing = ImVec2(12.0f * s, 8.0f * s);
+    st.ItemInnerSpacing = ImVec2(8.0f * s, 4.0f * s);
+    st.IndentSpacing = 24.0f * s;
+    st.ScrollbarSize = 12.0f * s;
+    st.GrabMinSize = 14.0f * s;
+    st.WindowBorderSize = 1.0f;
+    st.ChildBorderSize = 0.0f;
+    st.PopupBorderSize = 1.0f;
+    st.FrameBorderSize = 0.0f;
+    st.TabBorderSize = 0.0f;
+    st.WindowRounding = 20.0f * s;
+    st.ChildRounding = 14.0f * s;
+    st.FrameRounding = 10.0f * s;
+    st.PopupRounding = 10.0f * s;
+    st.ScrollbarRounding = 12.0f * s;
+    st.GrabRounding = 10.0f * s;
+    st.TabRounding = 10.0f * s;
+    st.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+
+    const ImVec4 accent(1.0f, 0.42f, 0.10f, 1.0f), accent2(1.0f, 0.54f, 0.27f, 1.0f), accent3(1.0f, 0.69f, 0.37f, 1.0f);
+    const ImVec4 bg(0.039f, 0.047f, 0.067f, 0.97f), bg2(0.063f, 0.075f, 0.102f, 1.0f), surface(0.106f, 0.118f, 0.141f, 1.0f);
+    const ImVec4 text(0.933f, 0.941f, 0.953f, 1.0f), text2(0.765f, 0.788f, 0.820f, 1.0f), muted(0.557f, 0.592f, 0.639f, 1.0f);
+    auto a = [](ImVec4 c, float alpha) { return ImVec4(c.x, c.y, c.z, alpha); };
+    ImVec4* c = st.Colors;
     ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 8.0f;
-    style.FrameRounding = 4.0f;
-    style.GrabRounding = 4.0f;
-    style.PopupRounding = 6.0f;
-    style.ScrollbarRounding = 6.0f;
-    style.WindowPadding = ImVec2(12.0f, 10.0f);
-    style.FramePadding = ImVec2(7.0f, 4.0f);
-    style.ItemSpacing = ImVec2(8.0f, 6.0f);
-    style.WindowBorderSize = 1.0f;
-    style.GrabMinSize = 9.0f;
-    ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.07f, 0.09f, 0.94f);
-    colors[ImGuiCol_Border] = ImVec4(1.0f, 1.0f, 1.0f, 0.08f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.09f, 0.11f, 1.0f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.10f, 0.09f, 1.0f);
-    colors[ImGuiCol_Separator] = ImVec4(1.0f, 1.0f, 1.0f, 0.10f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.21f, 0.26f, 0.95f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.24f, 0.25f, 0.31f, 1.0f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.09f, 0.11f, 0.98f);
-    colors[ImGuiCol_Header] = ImVec4(0.85f, 0.55f, 0.20f, 0.45f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.95f, 0.62f, 0.25f, 0.65f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.95f, 0.62f, 0.25f, 0.85f);
-    colors[ImGuiCol_Button] = ImVec4(0.85f, 0.55f, 0.20f, 0.55f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.95f, 0.62f, 0.25f, 0.80f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.15f, 0.19f, 0.90f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(1.00f, 0.66f, 0.28f, 0.95f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 0.75f, 0.40f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(1.00f, 0.70f, 0.30f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    // tabs in the same orange family (TMVS has no tabs; defaults would be blue)
-    colors[ImGuiCol_Tab] = ImVec4(0.14f, 0.15f, 0.19f, 0.90f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.95f, 0.62f, 0.25f, 0.65f);
-    colors[ImGuiCol_TabSelected] = ImVec4(0.85f, 0.55f, 0.20f, 0.70f);
-    colors[ImGuiCol_TabSelectedOverline] = ImVec4(1.00f, 0.66f, 0.28f, 1.00f);
-    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.12f, 0.13f, 0.16f, 1.0f);
-    style.ScaleAllSizes(scale);
+    c[ImGuiCol_Text] = text;
+    c[ImGuiCol_TextDisabled] = muted;
+    c[ImGuiCol_WindowBg] = bg;
+    c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_PopupBg] = a(bg2, 0.98f);
+    c[ImGuiCol_Border] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_FrameBg] = ImVec4(1, 1, 1, 0.07f);
+    c[ImGuiCol_FrameBgHovered] = ImVec4(1, 1, 1, 0.11f);
+    c[ImGuiCol_FrameBgActive] = ImVec4(1, 1, 1, 0.15f);
+    c[ImGuiCol_TitleBg] = bg2;
+    c[ImGuiCol_TitleBgActive] = bg2;
+    c[ImGuiCol_TitleBgCollapsed] = a(bg2, 0.8f);
+    c[ImGuiCol_MenuBarBg] = bg2;
+    c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_ScrollbarGrab] = ImVec4(1, 1, 1, 0.14f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1, 1, 1, 0.24f);
+    c[ImGuiCol_ScrollbarGrabActive] = a(accent2, 0.85f);
+    c[ImGuiCol_CheckMark] = accent2;
+    c[ImGuiCol_SliderGrab] = accent;
+    c[ImGuiCol_SliderGrabActive] = accent2;
+    c[ImGuiCol_Button] = surface;
+    c[ImGuiCol_ButtonHovered] = ImVec4(0.153f, 0.169f, 0.204f, 1.0f);
+    c[ImGuiCol_ButtonActive] = a(accent, 0.35f);
+    c[ImGuiCol_Header] = a(accent, 0.16f);
+    c[ImGuiCol_HeaderHovered] = a(accent, 0.28f);
+    c[ImGuiCol_HeaderActive] = a(accent, 0.40f);
+    c[ImGuiCol_Separator] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_SeparatorHovered] = a(accent2, 0.6f);
+    c[ImGuiCol_SeparatorActive] = accent2;
+    c[ImGuiCol_ResizeGrip] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_ResizeGripHovered] = a(accent2, 0.6f);
+    c[ImGuiCol_ResizeGripActive] = accent2;
+    c[ImGuiCol_TabHovered] = a(accent, 0.4f);
+    c[ImGuiCol_Tab] = surface;
+    c[ImGuiCol_TabSelected] = a(accent, 0.3f);
+    c[ImGuiCol_TabSelectedOverline] = accent;
+    c[ImGuiCol_TableHeaderBg] = bg2;
+    c[ImGuiCol_TableBorderStrong] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_TableBorderLight] = ImVec4(1, 1, 1, 0.05f);
+    c[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_TableRowBgAlt] = ImVec4(1, 1, 1, 0.025f);
+    c[ImGuiCol_TextSelectedBg] = a(accent, 0.35f);
+    c[ImGuiCol_PlotHistogram] = accent;
+    c[ImGuiCol_PlotLines] = accent2;
+    c[ImGuiCol_PlotHistogramHovered] = accent3;
+    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0, 0, 0, 0.55f);
 
     ImGuiIO& io = ImGui::GetIO();
     char win[MAX_PATH] = {};
     GetWindowsDirectoryA(win, MAX_PATH);
     std::string fonts = std::string(win) + "\\Fonts\\";
+    static const ImWchar ranges[] = {0x0020, 0x024F, 0x0370, 0x03FF, 0x0400, 0x04FF, 0x2000, 0x206F, 0};
+    auto add = [&](const char* file, float px) -> ImFont* {
+        std::string p = fonts + file;
+        if (GetFileAttributesA(p.c_str()) == INVALID_FILE_ATTRIBUTES) return nullptr;
+        ImFontConfig cfg;
+        cfg.OversampleH = 2;
+        cfg.OversampleV = 2;
+        return io.Fonts->AddFontFromFileTTF(p.c_str(), px, &cfg, ranges);
+    };
     UiStyle u;
-    u.scale = scale;
-    ImFontConfig cfg;
-    const ImWchar* ranges = io.Fonts->GetGlyphRangesDefault();
-    static const ImWchar extRanges[] = {0x0020, 0x024F, 0x0370, 0x03FF, 0x0400, 0x04FF, 0x2000, 0x206F, 0};
-    ranges = extRanges;
-    if (GetFileAttributesA((fonts + "segoeui.ttf").c_str()) != INVALID_FILE_ATTRIBUTES) {
-        u.body = io.Fonts->AddFontFromFileTTF((fonts + "segoeui.ttf").c_str(), 17.0f * scale, &cfg, ranges);
-        const char* sb = GetFileAttributesA((fonts + "seguisb.ttf").c_str()) != INVALID_FILE_ATTRIBUTES ? "seguisb.ttf" : "segoeui.ttf";
-        u.title = io.Fonts->AddFontFromFileTTF((fonts + sb).c_str(), 22.0f * scale, &cfg, ranges);
-        if (GetFileAttributesA((fonts + "consola.ttf").c_str()) != INVALID_FILE_ATTRIBUTES)
-            u.mono = io.Fonts->AddFontFromFileTTF((fonts + "consola.ttf").c_str(), 15.0f * scale, &cfg, ranges);
-    }
+    u.scale = s;
+    u.body = add("segoeui.ttf", 16.0f * s);
     if (!u.body) u.body = io.Fonts->AddFontDefault();
-    // host style colours (TMVS accent family)
-    u.accent = ImVec4(1.00f, 0.66f, 0.28f, 1.0f);
-    u.ok = ImVec4(0.40f, 0.85f, 0.45f, 1.0f);
-    u.warn = ImVec4(1.00f, 0.78f, 0.30f, 1.0f);
-    u.bad = ImVec4(0.95f, 0.38f, 0.32f, 1.0f);
-    u.text = ImVec4(1, 1, 1, 1);
-    u.text2 = ImVec4(0.86f, 0.87f, 0.90f, 1.0f);
-    u.muted = ImVec4(0.56f, 0.58f, 0.63f, 1.0f);
-    u.surface = colors[ImGuiCol_WindowBg];
+    u.title = add("bahnschrift.ttf", 28.0f * s);
+    if (!u.title) u.title = add("seguisb.ttf", 16.0f * s);
+    u.mono = add("consola.ttf", 14.0f * s);
+    io.FontDefault = u.body;
+    u.accent = accent;
+    u.ok = ImVec4(0.24f, 0.86f, 0.52f, 1.0f);
+    u.warn = ImVec4(0.95f, 0.76f, 0.31f, 1.0f);
+    u.bad = ImVec4(1.0f, 0.36f, 0.36f, 1.0f);
+    u.text = text;
+    u.text2 = text2;
+    u.muted = muted;
+    u.surface = surface;
     return u;
 }
 
@@ -657,7 +700,11 @@ int runShots(App& app, std::string dir) {
     panels.select("run");
     shot(app, dir, "01-start.png");
     panels.select("filters");
+    plugin.settings().atMinS = 30;  // show the author time range with values; the run below uses any length
+    plugin.settings().atMaxS = 90;
     shot(app, dir, "02-filters.png");
+    plugin.settings().atMinS = 0;
+    plugin.settings().atMaxS = 0;
     panels.select("rules");
     shot(app, dir, "03-rules.png");
     panels.select("layout");
@@ -778,7 +825,7 @@ int main(int argc, char** argv) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     FakeHost host(data, game);
-    host.style_ = applyTmvsStyle(1.0f);
+    host.style_ = applyHostStyle(1.0f);
     host.dev_ = g_dev;
     g_host = &host;
     ImGui_ImplWin32_Init(g_hwnd);
