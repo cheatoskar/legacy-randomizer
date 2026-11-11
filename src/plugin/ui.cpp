@@ -184,6 +184,13 @@ void Plugin::siteBadge(Site site, float size) {
     }
 }
 
+void Plugin::siteBadges(const std::vector<Site>& sites, float size) {
+    for (size_t i = 0; i < sites.size(); ++i) {
+        if (i) ImGui::SameLine(0, 4 * style_.scale);
+        siteBadge(sites[i], size);
+    }
+}
+
 void Plugin::drawHeader() {
     const float sc = style_.scale;
     icon(Icon::Flag, ui::col(style_.accent), ImGui::GetTextLineHeight() * 1.2f);
@@ -194,17 +201,33 @@ void Plugin::drawHeader() {
     ImGui::SameLine();
     ImGui::TextColored(style_.muted, "v" LR_PLUGIN_VERSION);
     HostGame g = host_.game();
-    Site site = siteFor(settings_.site, g);
+    if (isForever(g)) {
+        // Horizon on TMNF/TMUF is experimental: a small chip next to the version
+        ImGui::SameLine();
+        const char* t = "experimental on Forever";
+        ImVec2 p = ImGui::GetCursorScreenPos(), ts = ImGui::CalcTextSize(t);
+        float y = p.y + ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;
+        ImGui::GetWindowDrawList()->AddRect(ImVec2(p.x, y - 1 * sc), ImVec2(p.x + ts.x + 14 * sc, y + ts.y + 1 * sc), ui::col(style_.warn, 0.7f),
+                                            (ts.y + 2 * sc) * 0.5f, 0, 1.0f * sc);
+        ImGui::SetCursorScreenPos(ImVec2(p.x + 7 * sc, p.y));
+        ImGui::TextColored(style_.warn, "%s", t);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The Horizon host's support for TMNF/TMUF is experimental. The randomizer keeps to the Competition "
+                              "Patch rules: maps are loaded and left only in the menus and on the end-race screen.");
+    }
+    std::vector<Site> sites = sourceSites(settings_, g);
     std::string game = host_.gameName();
-    std::string host = siteHost(site);
-    // the game / site chip on the right: logo, site, game
+    std::string host = sitesLabel(sites);
+    // the game / site chip on the right: logo(s), site(s), game
     float logo = ImGui::GetTextLineHeight() * 1.25f;
-    float w = logo + ImGui::CalcTextSize((host + "   " + game).c_str()).x + 30 * sc;
+    const float n = static_cast<float>(sites.size());
+    float logos = logo * n + 4 * sc * (n - 1);
+    float w = logos + ImGui::CalcTextSize((host + "   " + game).c_str()).x + 30 * sc;
     ImGui::SameLine(ImGui::GetContentRegionMax().x - w);
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p.x - 8 * sc, p.y - 3 * sc), ImVec2(p.x + w - 8 * sc, p.y + logo + 3 * sc),
                                               IM_COL32(255, 255, 255, 12), 12 * sc);
-    siteBadge(site, logo);
+    siteBadges(sites, logo);
     ImGui::SameLine();
     ImGui::TextUnformatted(host.c_str());
     ImGui::SameLine();
@@ -275,13 +298,13 @@ void Plugin::pageRun() {
         return;
     }
 
-    Site site = siteFor(settings_.site, host_.game());
+    const std::vector<Site> sites = sourceSites(settings_, host_.game());
     const float colW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
     ImGui::BeginGroup();
     ui::beginCard("Start a run", Icon::Play, colW);
     {
         float logo = ImGui::GetTextLineHeight() * 2.4f;
-        siteBadge(site, logo);
+        siteBadges(sites, logo);
         ImGui::SameLine(0, 12 * sc);
         ImGui::BeginGroup();
         ImGui::PushFont(titleFont());
@@ -289,7 +312,7 @@ void Plugin::pageRun() {
                                                                                                                  : "Free play");
         ImGui::PopFont();
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
-        ImGui::TextColored(style_.muted, "%s", settings_.summary(site).c_str());
+        ImGui::TextColored(style_.muted, "%s", settings_.summary(sites, host_.game()).c_str());
         ImGui::PopTextWrapPos();
         ImGui::EndGroup();
     }
@@ -415,28 +438,70 @@ void Plugin::pageRun() {
 void Plugin::pageFilters() {
     const float sc = style_.scale;
     const float gap = 12 * sc;
-    Site site = siteFor(settings_.site, host_.game());
+    const HostGame g = host_.game();
+    const std::vector<Site> sites = sourceSites(settings_, g);
+    const Site site = sites[0];
     const float colW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
 
     ImGui::BeginGroup();
     ui::beginCard("Source", Icon::Map, colW);
-    ui::fieldLabel("TMX site", "Auto takes the TMX site of the game you play: ESWC nations, Sunrise sunrise, Original original, "
-                               "TMNF tmnf.exchange, TMUF tmuf.exchange.");
-    siteBadge(site, ImGui::GetFrameHeight());
-    ImGui::SameLine();
-    int sc0 = static_cast<int>(settings_.site);
-    if (ui::combo("##site", &sc0, kSiteChoices, 6)) {
-        settings_.site = static_cast<SiteChoice>(sc0);
-        settings_.envMask = 0;
-        markDirty();
+    if (isForever(g)) {
+        // Forever: the game's own exchange, the other one, or both (a site per map)
+        ui::fieldLabel("TMX source", g == HostGame::Tmnf
+                                         ? "TMNF plays Stadium maps only: from tmuf.exchange it gets Stadium maps driven with the "
+                                           "Stadium car. Both: each map comes from one of the two sites."
+                                         : "TMUF plays every environment. tmnf.exchange adds its Stadium maps as a second source.");
+        siteBadges(sites, ImGui::GetFrameHeight());
+        ImGui::SameLine();
+        if (g == HostGame::Tmnf) {
+            static const char* const opts[] = {"TMNF-X", "TMUF-X (Stadium)", "Both"};
+            int v = settings_.foreverSource;
+            if (ui::segmented("fsrc", &v, opts, 3, -1)) {
+                settings_.foreverSource = v;
+                markDirty();
+            }
+        } else {
+            static const char* const opts[] = {"TMUF-X", "TMUF-X + TMNF-X"};
+            int v = settings_.foreverSource == 2 ? 1 : 0;
+            if (ui::segmented("fsrc", &v, opts, 2, -1)) {
+                settings_.foreverSource = v ? 2 : 0;
+                markDirty();
+            }
+        }
+        if (sites.size() > 1 &&
+            ui::switchRow("Even site mix", &settings_.evenSites,
+                          "Off: a coin flip picks the site of each map (50/50). On: the site with fewer maps so far goes next, so "
+                          "the run stays even. Past runs are told apart per site and TMX id."))
+            markDirty();
+    } else {
+        ui::fieldLabel("TMX site", "Auto takes the TMX site of the game you play: ESWC nations, Sunrise sunrise, Original original.");
+        siteBadge(site, ImGui::GetFrameHeight());
+        ImGui::SameLine();
+        int sc0 = static_cast<int>(settings_.site);
+        if (ui::combo("##site", &sc0, kSiteChoices, 6)) {
+            settings_.site = static_cast<SiteChoice>(sc0);
+            settings_.envMask = 0;
+            markDirty();
+        }
     }
     ui::endCard();
 
     ui::beginCard("Length and environment", Icon::Timer, colW);
-    ui::fieldLabel("Author time");
-    if (ui::rangeSlider("at", &settings_.atMinS, &settings_.atMaxS, 600, "any")) markDirty();
+    ui::fieldLabel("Author time", "Drag, or type m:ss, m:ss.mmm or h:mm:ss. Empty = any. The slider goes to 10:00; typed times "
+                                  "can go beyond (the slider then sits at its end, the typed time counts).");
+    {
+        const float fw = 84 * sc, sp = ImGui::GetStyle().ItemSpacing.x;
+        bool ch = ui::durationInput("atmin", &settings_.atMinMs, "min", fw);
+        ImGui::SameLine();
+        ch |= ui::rangeSlider("at", &settings_.atMinMs, &settings_.atMaxMs, 600000, ImGui::GetContentRegionAvail().x - fw - sp);
+        ImGui::SameLine();
+        ch |= ui::durationInput("atmax", &settings_.atMaxMs, "max", fw);
+        if (ch) markDirty();
+        if (settings_.atMinMs > 0 && settings_.atMaxMs > 0 && settings_.atMinMs > settings_.atMaxMs)
+            ImGui::TextColored(style_.warn, "The minimum is above the maximum: no map can match.");
+    }
     const int* envs = nullptr;
-    int nEnv = siteEnvironments(site, &envs);
+    int nEnv = sourceEnvironments(sites, g, &envs);
     ui::fieldLabel("Environments", nEnv > 1 ? "None selected = all. With several, one environment is picked first for each map (evenly)." : nullptr);
     if (nEnv > 1) {
         for (int i = 0; i < nEnv; ++i) {
@@ -448,7 +513,8 @@ void Plugin::pageFilters() {
             }
         }
     } else {
-        ImGui::TextColored(style_.text2, "Stadium only on %s", siteHost(site));
+        if (g == HostGame::Tmnf) ImGui::TextColored(style_.text2, "Stadium only: TMNF plays Stadium maps");
+        else ImGui::TextColored(style_.text2, "Stadium only on %s", sitesLabel(sites).c_str());
     }
     ui::fieldLabel("Difficulty");
     for (int i = 0; i < 5; ++i) {
@@ -476,7 +542,8 @@ void Plugin::pageFilters() {
     ui::fieldLabel("Routes");
     for (int i = 0; i < 3; ++i) {
         if (i) ImGui::SameLine();
-        if (ui::chip(kRoutes[i], (settings_.routesMask & (1 << i)) != 0, Icon::Route)) {
+        static const Icon routeIcons[] = {Icon::RouteSingle, Icon::RouteMulti, Icon::RouteSymmetric};
+        if (ui::chip(kRoutes[i], (settings_.routesMask & (1 << i)) != 0, routeIcons[i])) {
             settings_.routesMask ^= 1 << i;
             markDirty();
         }
@@ -491,13 +558,13 @@ void Plugin::pageFilters() {
     }
     ui::endCard();
 
-    ui::beginCard("Leave out", Icon::Stop);
-    if (ui::switchRow("Unlimiter maps", &settings_.excludeUnlimiter)) markDirty();
+    ui::beginCard("Map checks", Icon::Stop);
+    if (ui::switchRow("Skip Unlimiter maps", &settings_.excludeUnlimiter, "Maps built with the Unlimiter mod need it to load.")) markDirty();
     bool needAt = settings_.goal == Goal::Author;
     bool noAt = !(settings_.requireAuthorTime || needAt);
     bool skipNoAt = !noAt;
     ImGui::BeginDisabled(needAt);
-    if (ui::switchRow("Maps without an author time", &skipNoAt,
+    if (ui::switchRow(needAt ? "Skip maps without an author time (goal Author)" : "Skip maps without an author time", &skipNoAt,
                       "Always on with the goal Author: without an author time the goal can't be reached.")) {
         settings_.requireAuthorTime = skipNoAt;
         markDirty();
@@ -852,6 +919,9 @@ void Plugin::pageAbout() {
     ImGui::Spacing();
     ImGui::TextWrapped("It never changes physics, timing or replays and does nothing in net play. On TMNF/TMUF it only acts in "
                        "the menus and on the end-race screen (Competition Patch 2.0).");
+    ImGui::Spacing();
+    ImGui::TextWrapped("TMNF and TMUF are experimental, because the Horizon host's support for Forever is. There the maps come "
+                       "from tmnf.exchange, tmuf.exchange or both (Filters > TMX source).");
     ImGui::PopStyleColor();
     ImGui::TextColored(style_.muted, "Version " LR_PLUGIN_VERSION ", MIT licence. Map data and screenshots: TMX. Rules after RandomizerTMF.");
     ui::endCard();

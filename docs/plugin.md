@@ -44,6 +44,17 @@ Unchanged from 0.1 except where the new rules need it:
 
 Safety rules (unchanged): nothing while online or gated; `play_map_file` only in the main menu; `return_to_menu` on ESWC/Sunrise/Original in a solo race or on the end screen, on **TMNF/TMUF only on the end-race screen** (Competition Patch 2.0).
 
+## TMNF / TMUF (experimental)
+
+`plugin.json` lists `tmnf` and `tmuf` too. Marked experimental in the UI (a chip next to the version, About) because the Horizon host's Forever support is.
+
+- **TMX source** (Filters, replaces the site dropdown on Forever). TMNF: *TMNF-X*, *TMUF-X (Stadium)* or *Both*. TMUF: *TMUF-X* (all environments) or *TMUF-X + TMNF-X*. The default is the game's own exchange (as *Auto*; `siteFor` maps TMNF → tmnf.exchange explicitly now). Setting `forever_source` (0 own, 1 other, 2 both).
+- From tmuf.exchange on **TMNF** every request carries `environment=6` and `vehicle=6` (Stadium environment, Stadium car), and the `/api/tracks` check rejects anything else. Verified live 2026-11-11 with 8 requests: 4 random maps with the Stadium filter were all Environment 7 / Car 7; 2 with the Snow filter were Environment 1 / Car 1.
+- **Both**: each map comes from one site. `even_sites` off (default): a coin flip per map (50/50). On: the site with fewer maps so far goes next. If one site fails, the other is tried for that map. On TMUF with chosen environments that TMNF-X doesn't have (no Stadium), TMNF-X is left out.
+- **Past runs per site + TMX id**: every map in the run file has its own `site`; *Exclude maps from past runs* / *Avoid maps you skipped* match on site and id (older files: the run's site). The run's `site` is `tmnf.exchange + tmuf.exchange` with two sources.
+- Competition Patch 2.0: unchanged. `play_map_file` only in the menu, `return_to_menu` only on the end-race screen; a skip during a race asks the player to leave the map.
+- Header chip: the logos of the active site(s), the host name(s), the game.
+
 ## RandomizerTMF parity
 
 Filters (Filters page; rarely used ones under *Advanced*), checked live 2026-11-11 against the old API (`/api/tracks` with `count=4`, results compared field by field, about 70 requests in total, once):
@@ -72,7 +83,7 @@ Rules (Rules page):
 
 ## Settings (host settings store)
 
-`mode`, `goal` (author/gold/silver/bronze/finished), `rmc_minutes`, `rms_*`, `free_skips`, `gold_skip`, `equal_environments`, `exclude_played`, `avoid_skipped`, `exclude_finished` (0), `banned`, `site`, `at_min_s`, `at_max_s`, `environments` (bit mask), `difficulty`, `tag`, `moods`, `routes`, `lb_type`, `vehicle`, `name`, `author`, `uploaded_after`, `uploaded_before`, `flag_in*` (-1/0/1), `exclude_unlimiter`, `require_author_time`, `auto_advance`, `advance_delay_s`, `replay_autosave` (**0**, greyed out), `hud_visible`, `hud_preset` (1 split), `layout_edit` (0), `hud_compact`, `thumb_source`, plus `win_<panel>` and `layout_version`.
+`mode`, `goal` (author/gold/silver/bronze/finished), `rmc_minutes`, `rms_*`, `free_skips`, `gold_skip`, `equal_environments`, `exclude_played`, `avoid_skipped`, `exclude_finished` (0), `banned`, `site`, `forever_source`, `even_sites`, `at_min_ms`, `at_max_ms`, `environments` (bit mask), `difficulty`, `tag`, `moods`, `routes`, `lb_type`, `vehicle`, `name`, `author`, `uploaded_after`, `uploaded_before`, `flag_in*` (-1/0/1), `exclude_unlimiter`, `require_author_time`, `auto_advance`, `advance_delay_s`, `replay_autosave` (**0**, greyed out), `hud_visible`, `hud_preset` (1 split), `layout_edit` (0), `hud_compact`, `thumb_source`, plus `win_<panel>` and `layout_version`.
 
 Hotkeys (host registry): `skip` Ctrl+F9, `gold-skip` Ctrl+F10, `toggle-hud` Ctrl+F11, `next-map` (none). Free in host 0.1.0 (menu Insert, Autosave F9).
 
@@ -92,12 +103,13 @@ Hotkeys (host registry): `skip` Ctrl+F9, `gold-skip` Ctrl+F10, `toggle-hud` Ctrl
 ## 0.3 polish (UI only, run logic unchanged)
 
 - Labels above the controls (small, muted) instead of ImGui's labels on the right; switches as rows (label left, switch right).
-- Author time: one range slider (square-root scale, 5 s steps) with the values under it (`0:30 – 1:30`, *any* at the open ends).
+- Author time: one range slider (square-root scale up to 10:00, 5 s steps) between two text fields (min, max). The fields take `m:ss`, `m:ss.mmm` and `h:mm:ss`, empty = any, applied when the field loses focus, red while invalid. Typed values may go beyond 10:00: the slider then sits at its end and the typed value counts; dragging a knob only changes its own end. Stored in ms (`at_min_ms`, `at_max_ms`; the old `at_*_s` keys are read once as fallback). Parser: `src/core/timefmt.h`, tested in core_test.
 - Dropdowns without ImGui's arrow box (a quiet chevron), full width.
 - *Advanced* (Filters, Rules) is a subtle disclosure row with a chevron instead of a full-width header bar.
 - Run page: start card with the site logo, the mode and a one-line summary, the Start button; *Last run* has an empty state (icon + one line) and is as tall as the start card; below, *Recent runs* (from two runs on) or *How a run goes*.
 - Header: the TMX site's logo, host and game as a chip on the right.
-- Mood chips with sunrise/sun/sunset/moon icons, routes with a route icon, goal chips with medal icons in the medal colours.
+- Mood chips with sunrise/sun/sunset/moon icons, routes with their own icons (Single: one path, Multi: a path that branches, Symmetric: two mirrored paths), goal chips with medal icons in the medal colours.
+- *Map checks* (was *Leave out*): every switch says what it does (*Skip Unlimiter maps*, *Skip maps without an author time*). A locked switch (disabled) is an outline with a grey knob, so a locked "on" never looks like a switch the player set.
 - HUD panels: TMVS overlay look (radius 10, padding 12/10); a locked panel placed right under another one follows that panel's real height, so Split has no gap between Map and Controls (or Medals and Session). Timer and Controls have taller default places for edit mode.
 - Kept: the sidebar, the page/panel table and the window logic (`panels.cpp`). Not done: tabs instead of the sidebar, mode tiles (both need restructuring).
 
@@ -111,4 +123,4 @@ Hotkeys (host registry): `skip` Ctrl+F9, `gold-skip` Ctrl+F10, `toggle-hud` Ctrl
 
 `build\test\ui_preview.exe` runs the real plugin code (everything except `host_horizon.cpp`) with a fake host: settings in a text file, game control that only logs and simulates map load / quit, a "Fake game" panel (finish with AT/gold/silver/slow, restart, Esc › Quit, online, +1/+10 min), F8 menu, Ctrl+F9/F10/F11. The ImGui style and fonts are the Horizon host's (`horizon-host` `src/host/ui/ui_style.cpp` at 895610c: launcher tokens, accent #ff6b1a, radii 10/14/20, Segoe UI 16, Bahnschrift 28 title), so the screenshots match the host; the plugin never sets global colours (its own colours are the medal colours).
 
-`ui_preview.exe --shots docs\screenshots` renders (the 0.2 set is kept in `docs/screenshots/before-0.2/`), 1920×1080: start, filters, rules, layout editor, split HUD, compact HUD, results, history — with real nations.tm-exchange.com maps (a scripted run of three maps, about 15 requests). Options: `--game eswc|sunrise|original|tmnf|tmuf`, `--data <dir>`.
+`ui_preview.exe --shots docs\screenshots` renders (the 0.2 set is kept in `docs/screenshots/before-0.2/`), 1920×1080: start, filters, rules, layout editor, split HUD, compact HUD, results, history, then with a fake TMNF host the Forever filters (both exchanges, a typed maximum of 12:30) and the Forever start page — with real nations.tm-exchange.com maps (a scripted run of three maps, about 15 requests). Options: `--game eswc|sunrise|original|tmnf|tmuf`, `--data <dir>`.

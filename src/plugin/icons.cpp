@@ -136,6 +136,28 @@ void drawIcon(ImDrawList* dl, Icon ic, ImVec2 o, float s, ImU32 c) {
         dl->AddCircle(P(0.78f, 0.22f), s * 0.1f, c, 12, t);
         dl->AddBezierCubic(P(0.32f, 0.78f), P(0.9f, 0.78f), P(0.1f, 0.22f), P(0.68f, 0.22f), c, t);
         break;
+    case Icon::RouteSingle:
+        // one path from start to finish
+        dl->AddCircle(P(0.22f, 0.8f), s * 0.09f, c, 12, t);
+        dl->AddBezierCubic(P(0.22f, 0.7f), P(0.22f, 0.4f), P(0.78f, 0.6f), P(0.78f, 0.3f), c, t);
+        dl->AddLine(P(0.78f, 0.3f), P(0.78f, 0.1f), c, t);
+        dl->AddTriangleFilled(P(0.78f, 0.1f), P(0.95f, 0.16f), P(0.78f, 0.22f), c);
+        break;
+    case Icon::RouteMulti:
+        // a path that splits in two
+        dl->AddCircle(P(0.5f, 0.84f), s * 0.09f, c, 12, t);
+        dl->AddLine(P(0.5f, 0.75f), P(0.5f, 0.52f), c, t);
+        dl->AddBezierCubic(P(0.5f, 0.52f), P(0.5f, 0.36f), P(0.2f, 0.36f), P(0.2f, 0.14f), c, t);
+        dl->AddBezierCubic(P(0.5f, 0.52f), P(0.5f, 0.36f), P(0.8f, 0.36f), P(0.8f, 0.14f), c, t);
+        dl->AddCircleFilled(P(0.2f, 0.14f), s * 0.07f, c, 10);
+        dl->AddCircleFilled(P(0.8f, 0.14f), s * 0.07f, c, 10);
+        break;
+    case Icon::RouteSymmetric:
+        // two paths mirrored on a centre line
+        for (float y = 0.1f; y < 0.9f; y += 0.2f) dl->AddLine(P(0.5f, y), P(0.5f, y + 0.1f), c, t * 0.8f);
+        dl->AddBezierCubic(P(0.38f, 0.85f), P(0.1f, 0.65f), P(0.1f, 0.35f), P(0.38f, 0.15f), c, t);
+        dl->AddBezierCubic(P(0.62f, 0.85f), P(0.9f, 0.65f), P(0.9f, 0.35f), P(0.62f, 0.15f), c, t);
+        break;
     case Icon::Gauge:
         dl->PathArcTo(P(0.5f, 0.62f), s * 0.38f, pi, 2 * pi, 16);
         dl->PathStroke(c, 0, t);

@@ -16,6 +16,7 @@
 #include "../src/core/gbx.h"
 #include "../src/core/json.h"
 #include "../src/core/session.h"
+#include "../src/core/timefmt.h"
 #include "../src/core/tmx.h"
 
 namespace fs = std::filesystem;
@@ -562,6 +563,38 @@ static void testLive() {
     std::printf("  download of id 1 -> \"%s\"\n", e.ok() ? "ok" : e.message.c_str());
 }
 
+static void testDurations() {
+    int ms = -1;
+    CHECK(parseDurationMs("", &ms) && ms == 0);
+    CHECK(parseDurationMs("  ", &ms) && ms == 0);
+    CHECK(parseDurationMs("0:30", &ms) && ms == 30000);
+    CHECK(parseDurationMs("1:30", &ms) && ms == 90000);
+    CHECK(parseDurationMs("12:05", &ms) && ms == 725000);
+    CHECK(parseDurationMs("1:30.250", &ms) && ms == 90250);
+    CHECK(parseDurationMs("0:42.5", &ms) && ms == 42500);
+    CHECK(parseDurationMs("1:02:03", &ms) && ms == 3723000);
+    CHECK(parseDurationMs("1:02:03.004", &ms) && ms == 3723004);
+    CHECK(parseDurationMs(" 1:30 ", &ms) && ms == 90000);
+    ms = 7;
+    CHECK(!parseDurationMs("90", &ms));
+    CHECK(!parseDurationMs("1:3", &ms));
+    CHECK(!parseDurationMs("1:60", &ms));
+    CHECK(!parseDurationMs("1:30.", &ms));
+    CHECK(!parseDurationMs("1:30.1234", &ms));
+    CHECK(!parseDurationMs("1:2:03", &ms));
+    CHECK(!parseDurationMs("a:30", &ms));
+    CHECK(!parseDurationMs("1:30:00:00", &ms));
+    CHECK_EQ(ms, 7);
+    CHECK_EQ(formatDurationMs(0), std::string());
+    CHECK_EQ(formatDurationMs(30000), std::string("0:30"));
+    CHECK_EQ(formatDurationMs(90250), std::string("1:30.250"));
+    CHECK_EQ(formatDurationMs(3723000), std::string("1:02:03"));
+    for (int v : {30000, 90250, 599999, 3723004}) {
+        int back = 0;
+        CHECK(parseDurationMs(formatDurationMs(v), &back) && back == v);
+    }
+}
+
 int main(int argc, char** argv) {
     bool live = false;
     fs::path maps = R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Challenges\Downloaded\_NostalgicCompletionist)";
@@ -574,6 +607,7 @@ int main(int argc, char** argv) {
     testGbx(maps);
     testSession();
     testGoals();
+    testDurations();
     {
         std::vector<fs::path> replayDirs = {R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Replays\Autosaves)"};
         wchar_t* docs = nullptr;

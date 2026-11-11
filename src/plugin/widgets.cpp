@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
 #include "imgui_internal.h"  // FindRenderedTextEnd, CurrentItemFlags
 #include "util.h"
+#include "../core/timefmt.h"
 
 namespace lr {
 namespace ui {
@@ -93,11 +96,17 @@ bool toggle(const char* id, bool* v) {
     st->SetFloat(key, t);
     const ImVec4 off(0.25f, 0.26f, 0.31f, 1.0f), on = g_style.accent;
     ImVec4 track(off.x + (on.x - off.x) * t, off.y + (on.y - off.y) * t, off.z + (on.z - off.z) * t, 1.0f);
-    float a = disabled ? 0.4f : (ImGui::IsItemHovered() ? 1.0f : 0.85f);
+    float a = ImGui::IsItemHovered() ? 1.0f : 0.85f;
     float y = p.y + (lineH - h) * 0.5f;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + w, y + h), col(track, a), h * 0.5f);
-    dl->AddCircleFilled(ImVec2(p.x + h * 0.5f + t * (w - h), y + h * 0.5f), h * 0.5f - 3.0f, IM_COL32(255, 255, 255, disabled ? 120 : 240), 16);
+    if (disabled) {
+        // locked: an outline only and a grey knob, so a locked "on" never looks like a switch you set
+        dl->AddRect(ImVec2(p.x, y), ImVec2(p.x + w, y + h), col(g_style.muted, 0.6f), h * 0.5f, 0, 1.5f * sc());
+        dl->AddCircleFilled(ImVec2(p.x + h * 0.5f + t * (w - h), y + h * 0.5f), h * 0.5f - 4.0f, col(g_style.muted, 0.7f), 16);
+    } else {
+        dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + w, y + h), col(track, a), h * 0.5f);
+        dl->AddCircleFilled(ImVec2(p.x + h * 0.5f + t * (w - h), y + h * 0.5f), h * 0.5f - 3.0f, IM_COL32(255, 255, 255, 240), 16);
+    }
     return clicked;
 }
 
@@ -215,23 +224,24 @@ bool triState(const char* label, int* v) {
     return ch;
 }
 
-bool rangeSlider(const char* id, int* lo, int* hi, int maxV, const char* anyText) {
+bool rangeSlider(const char* id, int* loMs, int* hiMs, int maxMs, float width) {
     ImGui::PushID(id);
-    const float w = ImGui::GetContentRegionAvail().x;
+    const float w = width > 0 ? width : ImGui::GetContentRegionAvail().x;
     const float h = ImGui::GetFrameHeight();
     ImVec2 p = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("##range", ImVec2(w, h));
     bool active = ImGui::IsItemActive(), hov = ImGui::IsItemHovered();
-    // values: lo 0 = open, hi 0 = open (shown at the right end)
-    int a = std::min(*lo, maxV), b = *hi > 0 ? std::min(*hi, maxV) : maxV;
+    // lo 0 = open, hi 0 = open (shown at the right end); typed values beyond the scale show clamped
+    int a = std::min(*loMs, maxMs), b = *hiMs > 0 ? std::min(*hiMs, maxMs) : maxMs;
+    if (b < a) b = a;
     float knob = h * 0.36f;
     float x0 = p.x + knob, x1 = p.x + w - knob;
     // square-root scale: 0:30 to 2:00 (most maps) get a good part of the track instead of a sliver
-    auto toX = [&](int v) { return x0 + (x1 - x0) * std::sqrt(static_cast<float>(v) / static_cast<float>(maxV)); };
+    auto toX = [&](int v) { return x0 + (x1 - x0) * std::sqrt(static_cast<float>(v) / static_cast<float>(maxMs)); };
     auto toV = [&](float x) {
         float t = std::clamp((x - x0) / (x1 - x0), 0.0f, 1.0f);
-        int v = static_cast<int>(t * t * maxV + 0.5f);
-        return (v + 2) / 5 * 5;  // 5 s steps
+        int v = static_cast<int>(t * t * static_cast<float>(maxMs) + 0.5f);
+        return (v + 2500) / 5000 * 5000;  // 5 s steps
     };
     ImGuiStorage* st = ImGui::GetStateStorage();
     ImGuiID dragKey = ImGui::GetID("##which");
@@ -241,13 +251,22 @@ bool rangeSlider(const char* id, int* lo, int* hi, int maxV, const char* anyText
         st->SetInt(dragKey, std::fabs(mx - toX(a)) <= std::fabs(mx - toX(b)) && !(a == b && mx > toX(b)) ? 0 : 1);
     }
     if (active) {
+        // only the dragged knob's value is written: a typed value on the other side stays as it is
         int v = toV(ImGui::GetIO().MousePos.x);
         if (st->GetInt(dragKey, 0) == 0) {
             v = std::min(v, b);
-            if (v != a) { a = v; changed = true; }
+            if (v != a) {
+                a = v;
+                *loMs = a;
+                changed = true;
+            }
         } else {
             v = std::max(v, a);
-            if (v != b) { b = v; changed = true; }
+            if (v != b) {
+                b = v;
+                *hiMs = b >= maxMs ? 0 : b;
+                changed = true;
+            }
         }
     }
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -260,16 +279,48 @@ bool rangeSlider(const char* id, int* lo, int* hi, int maxV, const char* anyText
         dl->AddCircleFilled(ImVec2(x, cy), knob, near || active ? IM_COL32(255, 255, 255, 255) : IM_COL32(235, 235, 240, 255), 20);
         dl->AddCircle(ImVec2(x, cy), knob, col(g_style.accent), 20, 2.0f * sc());
     }
-    if (changed) {  // values beyond the scale (settings file) stay until dragged
-        *lo = a;
-        *hi = b >= maxV ? 0 : b;
-    }
     ImGui::PopID();
-    // the value line, right under the slider
-    std::string ta = *lo == 0 ? std::string(anyText) : formatClock(*lo * 1000);
-    std::string tb = *hi == 0 ? std::string(anyText) : formatClock(*hi * 1000);
-    std::string text = (*lo == 0 && *hi == 0) ? std::string("Any length") : ta + "  \xE2\x80\x93  " + tb;
-    ImGui::TextColored(g_style.text2, "%s", text.c_str());
+    return changed;
+}
+
+bool durationInput(const char* id, int* ms, const char* hint, float width) {
+    ImGui::PushID(id);
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    const ImGuiID idBad = ImGui::GetID("##bad"), idLast = ImGui::GetID("##last"), idText = ImGui::GetID("##text");
+    static std::map<ImGuiID, std::string> texts;  // what is in the field (kept while it is invalid)
+    std::string& text = texts[idText];
+    bool bad = st->GetBool(idBad, false);
+    // the value changed from outside (slider, defaults): show it and forget an invalid entry
+    if (st->GetInt(idLast, -1) != *ms) {
+        st->SetInt(idLast, *ms);
+        text = formatDurationMs(*ms);
+        bad = false;
+    }
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%s", text.c_str());
+    if (bad) ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(g_style.bad.x, g_style.bad.y, g_style.bad.z, 0.25f));
+    ImGui::SetNextItemWidth(width);
+    ImGui::InputTextWithHint("##in", hint, buf, sizeof buf, ImGuiInputTextFlags_CharsNoBlank | ImGuiInputTextFlags_AutoSelectAll);
+    if (bad) ImGui::PopStyleColor();
+    text = buf;
+    bool changed = false;
+    if (ImGui::IsItemDeactivated()) {
+        int v = 0;
+        if (parseDurationMs(text, &v)) {
+            bad = false;
+            if (v != *ms) {
+                *ms = v;
+                changed = true;
+            }
+            st->SetInt(idLast, *ms);
+            text = formatDurationMs(*ms);
+        } else {
+            bad = true;
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(bad ? "Not a time. Use m:ss, m:ss.mmm or h:mm:ss; empty = any." : "m:ss, m:ss.mmm or h:mm:ss; empty = any");
+    st->SetBool(idBad, bad);
+    ImGui::PopID();
     return changed;
 }
 

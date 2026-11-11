@@ -30,7 +30,11 @@ void infoTip(const char* text);                                          // (i) 
 bool segmented(const char* id, int* value, const char* const* labels, int count, float width = 0);
 bool chip(const char* label, bool on, Icon ic = Icon::None, ImU32 iconColor = 0);  // iconColor 0: the text colour
 bool triState(const char* label, int* v);
-bool rangeSlider(const char* id, int* lo, int* hi, int maxValue, const char* anyText);  // seconds; 0 / max = open end
+// author-time window in ms on a square-root scale up to maxMs, 5 s steps; 0 = open end. Values beyond the
+// scale (typed) are drawn clamped and only change when their knob is dragged.
+bool rangeSlider(const char* id, int* loMs, int* hiMs, int maxMs, float width = 0);
+// a time field: m:ss, m:ss.mmm or h:mm:ss, empty = 0; applied when the field loses focus, red while invalid
+bool durationInput(const char* id, int* ms, const char* hint, float width);
 bool combo(const char* id, int* current, const char* const* items, int count);
 bool beginCombo(const char* id, const char* preview);  // + ImGui::EndCombo() when true
 bool disclosure(const char* label, bool* open);       // a subtle row with a chevron

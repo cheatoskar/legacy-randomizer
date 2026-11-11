@@ -57,7 +57,9 @@ bool RunController::start(std::string* why) {
     auto no = [why](const char* m) { if (why) *why = m; return false; };
     if (active()) return no("A run is already going on.");
     if (host_.isOnline() || !host_.actionsAllowed()) return no("Not available in net play.");
-    site_ = siteFor(settings_.site, host_.game());
+    sites_ = sourceSites(settings_, host_.game());
+    site_ = sites_[0];
+    mapSites_.clear();
     cfg_ = settings_.sessionConfig();
     session_.reset(new Session(cfg_));
     session_->start();
@@ -75,20 +77,40 @@ bool RunController::start(std::string* why) {
     tickCarry_ = 0;
     if (injected_.empty()) {
         Fetcher::Job job;
-        job.site = site_;
-        job.filter = settings_.filter(site_);
         job.folder = host_.dataFolder() + "maps\\";
         job.thumbs = settings_.thumbSource;
-        if (settings_.excludePlayed) job.exclude = history_.playedIds(siteHost(site_));
-        if (settings_.avoidSkipped)
-            for (long long id : history_.skippedIds(siteHost(site_))) job.exclude.insert(id);
-        for (long long id : parseIdList(settings_.banned)) job.exclude.insert(id);
-        // environments: the chosen ones, or with "equal distribution" all of the site's, one per request
-        const int* envs = nullptr;
-        int nEnv = siteEnvironments(site_, &envs);
-        for (int i = 0; i < nEnv; ++i)
-            if (settings_.envMask & (1 << (envs[i] - 1))) job.environments.push_back(envs[i]);
-        if (job.environments.empty() && settings_.equalEnvironments && nEnv > 1) job.environments.assign(envs, envs + nEnv);
+        job.evenSites = settings_.evenSites;
+        const std::set<long long> banned = [&] {
+            std::set<long long> b;
+            for (long long id : parseIdList(settings_.banned)) b.insert(id);
+            return b;
+        }();
+        for (Site s : sites_) {
+            Fetcher::Source src;
+            src.site = s;
+            src.filter = settings_.filter(s);
+            // past runs per site + TMX id (the same id on two sites is two different maps)
+            if (settings_.excludePlayed) src.exclude = history_.playedIds(siteHost(s));
+            if (settings_.avoidSkipped)
+                for (long long id : history_.skippedIds(siteHost(s))) src.exclude.insert(id);
+            src.exclude.insert(banned.begin(), banned.end());
+            if (host_.game() == HostGame::Tmnf && s == Site::TMUF) {
+                // TMNF plays only Stadium maps driven with the Stadium car
+                src.environments = {7};
+                src.filter.vehicle = 7;
+            } else {
+                // environments: the chosen ones, or with "equal distribution" all of the site's, one per request
+                const int* envs = nullptr;
+                int nEnv = siteEnvironments(s, &envs);
+                for (int i = 0; i < nEnv; ++i)
+                    if (settings_.envMask & (1 << (envs[i] - 1))) src.environments.push_back(envs[i]);
+                // chosen environments this site doesn't have (TMNF-X next to TMUF-X with only Snow): leave it out
+                if (src.environments.empty() && settings_.envMask != 0 && sites_.size() > 1) continue;
+                if (src.environments.empty() && settings_.equalEnvironments && nEnv > 1) src.environments.assign(envs, envs + nEnv);
+            }
+            job.sources.push_back(src);
+        }
+        if (job.sources.empty()) return no("None of the TMX sites has the chosen environments.");
         if (settings_.excludeFinished) {
             std::string user = host_.userFolder(), game = host_.gameFolder();
             // Forever / Sunrise: the user folder (Documents\TrackMania...); ESWC: <exe dir>\GameData\...
@@ -100,7 +122,7 @@ bool RunController::start(std::string* why) {
     }
     phase_ = Phase::Preparing;
     host_.log(LogInfo, std::string("run started: ") + modeKey(cfg_.mode) + ", goal " +
-                           Session::goalKey(cfg_.goal) + ", site " + siteHost(site_));
+                           Session::goalKey(cfg_.goal) + ", site " + sitesLabel(sites_));
     return true;
 }
 
@@ -209,7 +231,7 @@ void RunController::resume() {
 void RunController::dropPendingMap() {
     if (!pending_ || (phase_ != Phase::Loading && phase_ != Phase::Preparing && phase_ != Phase::WaitingMap)) return;
     host_.log(LogWarn, "dropping map " + std::to_string(pending_->tmx.id) + " (did not start)");
-    fetcher_.exclude(pending_->tmx.id);
+    fetcher_.exclude(pending_->site, pending_->tmx.id);
     releaseMap(pending_);
     phase_ = session_ && session_->history().empty() && !cur_ ? Phase::Preparing : Phase::WaitingMap;
     notice_.clear();
@@ -342,7 +364,7 @@ void RunController::tryPlayNext() {
         }
         ++loadFailures_;
         setError("Map " + std::to_string(m->tmx.id) + " failed to load (" + resultText(r) + "), taking the next one.");
-        fetcher_.exclude(m->tmx.id);
+        fetcher_.exclude(m->site, m->tmx.id);
         deleteFile(m->path);
         releaseMap(pending_);
         retryAt_ = now + 1000;
@@ -398,6 +420,7 @@ void RunController::beginMap() {
     sm.author = cur_->author;
     sm.medals = cur_->medals;
     session_->mapStarted(sm);
+    mapSites_.push_back(cur_->site);
     phase_ = Phase::Playing;
     onOurMap_ = true;
     userLeft_ = goalReached_ = waitUser_ = raceEnded_ = reloading_ = false;
@@ -431,7 +454,7 @@ void RunController::mapResolved(bool goal) {
 RunRecord RunController::snapshot(const char* by) const {
     RunRecord r;
     r.game = host_.gameName();
-    r.site = siteHost(site_);
+    r.site = sitesLabel(sites_);
     r.mode = modeKey(cfg_.mode);
     r.goal = Session::goalKey(cfg_.goal);
     r.timeLimitMs = cfg_.mode == Mode::FreePlay ? 0 : cfg_.startMs;
@@ -456,6 +479,7 @@ RunRecord RunController::snapshot(const char* by) const {
         m.spentMs = h[i].spentMs;
         m.medals = h[i].map.medals;
         if (i < replays_.size()) m.replay = replays_[i];
+        m.site = siteHost(i < mapSites_.size() ? mapSites_[i] : site_);
         r.maps.push_back(m);
     }
     return r;

@@ -35,13 +35,19 @@ struct PreparedMap {
 
 class Fetcher {
 public:
-    struct Job {
+    // One TMX site to pick from. A run has one, on Forever with "both" two: then a site is picked per map
+    // (a coin flip, or with evenSites the site with fewer maps so far).
+    struct Source {
         Site site = Site::TMNF;
         TmxFilter filter;
+        std::vector<int> environments;    // pick one of these per request (equal distribution); empty: any
+        std::set<long long> exclude;      // TMX ids of this site not to pick (played before, banned, skipped)
+    };
+    struct Job {
+        std::vector<Source> sources;
+        bool evenSites = false;
         std::string folder;               // UTF-8, trailing backslash; maps go here
         ThumbSource thumbs = ThumbSource::Tmx;
-        std::set<long long> exclude;      // TMX ids not to pick (played before, banned, skipped)
-        std::vector<int> environments;    // pick one of these per request (equal distribution); empty: any
         std::vector<std::string> autosaveDirs;  // "never a map you finished before": replays in these folders
         std::string autosaveCache;        // cache file for the replay scan ("" none)
     };
@@ -57,7 +63,7 @@ public:
 
     std::shared_ptr<PreparedMap> take();  // the ready map or null; the worker starts the next one
     bool hasReady();
-    void exclude(long long id);
+    void exclude(Site site, long long id);
     void retryNow();                       // skip the back-off wait after an error
 
     std::string status();      // what the worker is doing / last error
@@ -67,7 +73,9 @@ public:
 private:
     void loop();
     bool fetchOne(PreparedMap& out, std::string& err);
-    bool excluded(long long id);
+    bool excluded(Site site, long long id);
+    Source* source(Site site);  // under mu_
+    std::vector<int> taken_;     // maps handed out per source (even site mix)
     void scanAutosaves(const Job& job);
     std::set<std::string> finished_;  // map uids with an autosave replay (worker thread only)
 

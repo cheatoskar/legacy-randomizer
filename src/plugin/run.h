@@ -69,6 +69,7 @@ public:
     std::string fetchStatus();
     bool fetchFailing();
     Site site() const { return site_; }
+    const std::vector<Site>& sites() const { return sites_; }  // the run's TMX sites (Forever "both": two)
     bool forever() const;
     const RunRecord& lastRun() const { return last_; }
     RunRecord snapshot(const char* endedBy = "") const;  // the run so far, as it would be saved
@@ -96,7 +97,9 @@ private:
     Fetcher fetcher_;
     std::unique_ptr<Session> session_;
     Phase phase_ = Phase::Idle;
-    Site site_ = Site::TMNF;
+    Site site_ = Site::TMNF;            // the first of sites_
+    std::vector<Site> sites_;
+    std::vector<Site> mapSites_;        // per started map (history entry), for the run file
     SessionConfig cfg_;
     std::string started_;
 

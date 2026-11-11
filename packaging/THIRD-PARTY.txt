@@ -24,3 +24,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+TM-Exchange site logos (tmnf.exchange, tmuf.exchange, nations, sunrise and original.tm-exchange.com)
+are embedded in legacy_randomizer_plugin.dll, 64 px, from the site-switch logos at
+https://account.mania.exchange/img/logos/ (TMNF, TMU, TMN, TMS, TMO). They belong to their owners
+(Nadeo / Ubisoft, ManiaExchange) and only mark which exchange a map comes from. Nothing is fetched at runtime.

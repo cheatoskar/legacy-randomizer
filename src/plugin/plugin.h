@@ -51,6 +51,7 @@ public:
 private:
     void drawHeader();
     void siteBadge(Site site, float size);
+    void siteBadges(const std::vector<Site>& sites, float size);  // logos side by side
     void drawResults(const RunRecord& r, bool live);
     void drawMapsTable(const RunRecord& r, const char* id, float height);
     void drawMapCard(PreparedMap* m, float width, bool thumb);

@@ -16,6 +16,7 @@ struct RunMapRecord {
     int bestMs = 0, spentMs = 0;
     MapMedals medals;
     std::string replay;      // path of a saved replay, "" none
+    std::string site;        // TMX host of this map ("" in older files: the run's site)
 };
 
 struct RunRecord {

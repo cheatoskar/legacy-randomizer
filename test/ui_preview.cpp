@@ -700,11 +700,11 @@ int runShots(App& app, std::string dir) {
     panels.select("run");
     shot(app, dir, "01-start.png");
     panels.select("filters");
-    plugin.settings().atMinS = 30;  // show the author time range with values; the run below uses any length
-    plugin.settings().atMaxS = 90;
+    plugin.settings().atMinMs = 30000;  // show the author time range with values; the run below uses any length
+    plugin.settings().atMaxMs = 90500;
     shot(app, dir, "02-filters.png");
-    plugin.settings().atMinS = 0;
-    plugin.settings().atMaxS = 0;
+    plugin.settings().atMinMs = 0;
+    plugin.settings().atMaxMs = 0;
     panels.select("rules");
     shot(app, dir, "03-rules.png");
     panels.select("layout");
@@ -765,6 +765,17 @@ int runShots(App& app, std::string dir) {
     panels.select("history");
     plugin.selectHistoryRun(0);
     shot(app, dir, "08-history.png");
+    // Forever: a fake TMNF host, maps from both exchanges, a typed maximum beyond the slider's 10:00
+    host.game_ = HostGame::Tmnf;
+    plugin.settings().foreverSource = 2;
+    plugin.settings().evenSites = true;
+    plugin.settings().atMinMs = 45000;
+    plugin.settings().atMaxMs = 12 * 60000 + 30000;
+    panels.select("filters");
+    shot(app, dir, "09-filters-forever.png");
+    panels.select("run");
+    run.newRun();
+    shot(app, dir, "10-start-forever.png");
     return g_shotFails ? 1 : 0;
 }
 

@@ -19,6 +19,7 @@ void Fetcher::start(const Job& job) {
     {
         std::lock_guard<std::mutex> l(mu_);
         job_ = job;
+        taken_.assign(job_.sources.size(), 0);
         stop_ = false;
         wake_ = false;
         ready_.reset();
@@ -52,7 +53,11 @@ std::shared_ptr<PreparedMap> Fetcher::take() {
         std::lock_guard<std::mutex> l(mu_);
         m = std::move(ready_);
         ready_.reset();
-        if (m) job_.exclude.insert(m->tmx.id);
+        if (m) {
+            if (Source* s = source(m->site)) s->exclude.insert(m->tmx.id);
+            for (size_t i = 0; i < job_.sources.size(); ++i)
+                if (job_.sources[i].site == m->site) ++taken_[i];
+        }
     }
     cv_.notify_all();
     return m;
@@ -63,9 +68,15 @@ bool Fetcher::hasReady() {
     return ready_ != nullptr;
 }
 
-void Fetcher::exclude(long long id) {
+Fetcher::Source* Fetcher::source(Site site) {
+    for (Source& s : job_.sources)
+        if (s.site == site) return &s;
+    return nullptr;
+}
+
+void Fetcher::exclude(Site site, long long id) {
     std::lock_guard<std::mutex> l(mu_);
-    job_.exclude.insert(id);
+    if (Source* s = source(site)) s->exclude.insert(id);
 }
 
 void Fetcher::retryNow() {
@@ -91,9 +102,10 @@ int Fetcher::failures() {
     return failures_;
 }
 
-bool Fetcher::excluded(long long id) {
+bool Fetcher::excluded(Site site, long long id) {
     std::lock_guard<std::mutex> l(mu_);
-    return job_.exclude.count(id) != 0;
+    Source* s = source(site);
+    return s && s->exclude.count(id) != 0;
 }
 
 void Fetcher::loop() {
@@ -143,32 +155,54 @@ void Fetcher::loop() {
 }
 
 bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
+    static std::mt19937 rng(static_cast<unsigned>(GetTickCount()));
+    // the site of this map: the only one, or of two a coin flip / the one with fewer maps so far
+    std::vector<Source> order;
     Job job;
     {
         std::lock_guard<std::mutex> l(mu_);
-        job.site = job_.site;
-        job.filter = job_.filter;
+        if (job_.sources.empty()) {
+            err = "no TMX site to pick from";
+            return false;
+        }
+        size_t first = 0;
+        if (job_.sources.size() > 1) {
+            first = std::uniform_int_distribution<size_t>(0, job_.sources.size() - 1)(rng);
+            if (job_.evenSites)
+                for (size_t i = 0; i < job_.sources.size(); ++i)
+                    if (taken_[i] < taken_[first]) first = i;
+        }
+        for (size_t k = 0; k < job_.sources.size(); ++k) order.push_back(job_.sources[(first + k) % job_.sources.size()]);
+        for (Source& s : order) s.exclude.clear();  // checked under the lock (excluded())
         job.folder = job_.folder;
         job.thumbs = job_.thumbs;
-        job.environments = job_.environments;
-        status_ = std::string("Picking a random map on ") + siteHost(job.site);
+        status_ = std::string("Picking a random map on ") + siteHost(order[0].site);
     }
     HttpOptions http;
     http.timeoutMs = 10000;
     http.retries = 1;
     int rejected = 0;
-    static std::mt19937 rng(static_cast<unsigned>(GetTickCount()));
+    size_t which = 0;  // index into order; the other site is tried when this one fails
     for (int attempt = 0; attempt < 8; ++attempt) {
+        Source& src = order[which];
         // environment first (chosen ones / equal distribution), then a random map of it
-        if (!job.environments.empty())
-            job.filter.environment = job.environments[std::uniform_int_distribution<size_t>(0, job.environments.size() - 1)(rng)];
+        if (!src.environments.empty())
+            src.filter.environment = src.environments[std::uniform_int_distribution<size_t>(0, src.environments.size() - 1)(rng)];
         MapInfo info;
-        TmxError e = getRandomMap(job.site, job.filter, info, http);
-        if (!e.ok()) { err = e.message; return false; }
-        if (excluded(info.id)) { ++rejected; continue; }
+        TmxError e = getRandomMap(src.site, src.filter, info, http);
+        if (!e.ok()) {
+            if (which + 1 < order.size()) {
+                if (log_) log_(LogWarn, std::string(siteHost(src.site)) + ": " + e.message + ", trying " + siteHost(order[which + 1].site));
+                ++which;
+                continue;
+            }
+            err = e.message;
+            return false;
+        }
+        if (excluded(src.site, info.id)) { ++rejected; continue; }
         if (!info.uid.empty() && finished_.count(info.uid)) {
             if (log_) log_(LogInfo, "map " + std::to_string(info.id) + " was finished before (autosave), next one");
-            exclude(info.id);
+            exclude(src.site, info.id);
             ++rejected;
             continue;
         }
@@ -176,21 +210,21 @@ bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
             std::lock_guard<std::mutex> l(mu_);
             status_ = "Downloading map " + std::to_string(info.id);
         }
-        std::string path = job.folder + siteName(job.site) + std::string("_") + std::to_string(info.id) + ".Challenge.Gbx";
+        std::string path = job.folder + siteName(src.site) + std::string("_") + std::to_string(info.id) + ".Challenge.Gbx";
         for (char& c : path)
             if (c == ' ') c = '_';
         std::string bytes;
-        e = downloadMap(job.site, info.id, path, &bytes, http);
+        e = downloadMap(src.site, info.id, path, &bytes, http);
         if (!e.ok()) { err = "download of map " + std::to_string(info.id) + ": " + e.message; return false; }
         GbxMapHeader h = parseChallengeHeader(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
         if (!h.ok) {
             if (log_) log_(LogWarn, "map " + std::to_string(info.id) + " has an unreadable header (" + h.error + "), next one");
-            exclude(info.id);
+            exclude(src.site, info.id);
             deleteFile(path);
             continue;
         }
         PreparedMap m;
-        m.site = job.site;
+        m.site = src.site;
         m.tmx = info;
         m.path = path;
         m.uid = !h.uid.empty() ? h.uid : info.uid;
@@ -200,15 +234,15 @@ bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
         m.medals.goldMs = h.goldMs > 0 ? h.goldMs : info.goldMs;
         m.medals.silverMs = h.silverMs > 0 ? h.silverMs : info.silverMs;
         m.medals.bronzeMs = h.bronzeMs > 0 ? h.bronzeMs : info.bronzeMs;
-        if (job.filter.requireAuthorTime && m.medals.authorMs <= 0) {
+        if (src.filter.requireAuthorTime && m.medals.authorMs <= 0) {
             if (log_) log_(LogInfo, "map " + std::to_string(info.id) + " has no author time, next one");
-            exclude(info.id);
+            exclude(src.site, info.id);
             deleteFile(path);
             continue;
         }
         if (m.medals.goldMs <= 0) {
             if (log_) log_(LogInfo, "map " + std::to_string(info.id) + " has no medal times, next one");
-            exclude(info.id);
+            exclude(src.site, info.id);
             deleteFile(path);
             continue;
         }
@@ -216,7 +250,7 @@ bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
         std::string ierr;
         if (job.thumbs == ThumbSource::Tmx) {
             std::string img;
-            if (downloadThumbnail(job.site, info.id, img, http).ok() && decodeImage(img, 512, 512, false, m.thumb, &ierr))
+            if (downloadThumbnail(src.site, info.id, img, http).ok() && decodeImage(img, 512, 512, false, m.thumb, &ierr))
                 m.thumbSource = "TMX";
         }
         if (job.thumbs != ThumbSource::Off && !m.thumb.ok() && !h.thumbnailJpeg.empty() &&

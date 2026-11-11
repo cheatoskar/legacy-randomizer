@@ -3,7 +3,7 @@
   "name": "Legacy Randomizer",
   "version": "0.3.0",
   "dll": "legacy_randomizer_plugin.dll",
-  "games": ["eswc", "sunrise"],
+  "games": ["eswc", "sunrise", "tmnf", "tmuf"],
   "online": "solo-only",
   "abi": 1,
   "description": "Random Map Challenge in game",

@@ -1,5 +1,7 @@
 #include "settings.h"
 
+#include "../core/timefmt.h"
+
 namespace lr {
 
 namespace {
@@ -35,8 +37,11 @@ void Settings::load(Host& h) {
     excludeFinished = h.getInt("exclude_finished", d.excludeFinished) != 0;
     banned = h.getString("banned", "");
     site = static_cast<SiteChoice>(clampi(h.getInt("site", static_cast<int>(d.site)), 0, 5));
-    atMinS = clampi(h.getInt("at_min_s", d.atMinS), 0, 3600);
-    atMaxS = clampi(h.getInt("at_max_s", d.atMaxS), 0, 3600);
+    // milliseconds since 0.3 (typed values like 1:30.250); the old whole-second keys as fallback
+    atMinMs = clampi(h.getInt("at_min_ms", clampi(h.getInt("at_min_s", 0), 0, 36000) * 1000), 0, 36000000);
+    atMaxMs = clampi(h.getInt("at_max_ms", clampi(h.getInt("at_max_s", 0), 0, 36000) * 1000), 0, 36000000);
+    foreverSource = clampi(h.getInt("forever_source", d.foreverSource), 0, 2);
+    evenSites = h.getInt("even_sites", d.evenSites) != 0;
     envMask = clampi(h.getInt("environments", d.envMask), 0, 127);
     difficulty = clampi(h.getInt("difficulty", d.difficulty), -1, 3);
     tag = clampi(h.getInt("tag", d.tag), -1, 99);
@@ -78,8 +83,10 @@ void Settings::save(Host& h) const {
     h.setInt("exclude_finished", excludeFinished);
     h.setString("banned", banned);
     h.setInt("site", static_cast<int>(site));
-    h.setInt("at_min_s", atMinS);
-    h.setInt("at_max_s", atMaxS);
+    h.setInt("at_min_ms", atMinMs);
+    h.setInt("at_max_ms", atMaxMs);
+    h.setInt("forever_source", foreverSource);
+    h.setInt("even_sites", evenSites);
     h.setInt("environments", envMask);
     h.setInt("difficulty", difficulty);
     h.setInt("tag", tag);
@@ -133,8 +140,8 @@ SessionConfig Settings::sessionConfig() const {
 
 TmxFilter Settings::filter(Site s) const {
     TmxFilter f;
-    f.authorTimeMinMs = atMinS * 1000;
-    f.authorTimeMaxMs = atMaxS * 1000;
+    f.authorTimeMinMs = atMinMs;
+    f.authorTimeMaxMs = atMaxMs;
     f.difficulty = difficulty;
     f.tag = tag;
     f.excludeUnlimiter = excludeUnlimiter;
@@ -152,20 +159,22 @@ TmxFilter Settings::filter(Site s) const {
     return f;
 }
 
-std::string Settings::summary(Site s) const {
+std::string Settings::summary(const std::vector<Site>& sites, HostGame g) const {
     std::string o = mode == Mode::RMC ? "RMC \xC2\xB7 " + std::to_string(rmcMinutes) + " min"
                     : mode == Mode::RMS ? "RMS \xC2\xB7 " + std::to_string(rmsStartMinutes) + " min start"
                                         : std::string("Free play");
     o += std::string(" \xC2\xB7 ") + goalTitle(goal);
-    o += std::string(" \xC2\xB7 ") + siteHost(s);
+    o += " \xC2\xB7 " + sitesLabel(sites);
     const int* ids = nullptr;
-    int n = siteEnvironments(s, &ids);
+    int n = sourceEnvironments(sites, g, &ids);
     std::string env;
     for (int i = 0; i < n; ++i)
         if (envMask & (1 << (ids[i] - 1))) env += (env.empty() ? "" : "/") + std::string(environmentName(ids[i]));
     if (env.empty()) env = n == 1 ? environmentName(ids[0]) : "all environments";
     o += " \xC2\xB7 " + env;
-    if (atMaxS > 0) o += " \xC2\xB7 AT \xE2\x89\xA4 " + std::to_string(atMaxS / 60) + ":" + (atMaxS % 60 < 10 ? "0" : "") + std::to_string(atMaxS % 60);
+    if (atMinMs > 0 || atMaxMs > 0)
+        o += " \xC2\xB7 AT " + (atMinMs > 0 ? formatDurationMs(atMinMs) : std::string("any")) + "\xE2\x80\x93" +
+             (atMaxMs > 0 ? formatDurationMs(atMaxMs) : std::string("any"));
     return o;
 }
 
@@ -183,10 +192,38 @@ Site siteFor(SiteChoice c, HostGame g) {
     case HostGame::Sunrise: return Site::TMS;
     case HostGame::Original: return Site::TMO;
     case HostGame::Tmuf: return Site::TMUF;
-    case HostGame::Tmnf:
+    case HostGame::Tmnf: return Site::TMNF;
     case HostGame::Unknown: break;
     }
     return Site::TMNF;
+}
+
+bool isForever(HostGame g) { return g == HostGame::Tmnf || g == HostGame::Tmuf; }
+
+std::vector<Site> sourceSites(const Settings& s, HostGame g) {
+    if (g == HostGame::Tmnf) {
+        if (s.foreverSource == 1) return {Site::TMUF};
+        if (s.foreverSource == 2) return {Site::TMNF, Site::TMUF};
+        return {Site::TMNF};
+    }
+    if (g == HostGame::Tmuf) {
+        if (s.foreverSource == 2) return {Site::TMUF, Site::TMNF};
+        return {Site::TMUF};
+    }
+    return {siteFor(s.site, g)};
+}
+
+std::string sitesLabel(const std::vector<Site>& sites) {
+    std::string o;
+    for (Site x : sites) o += (o.empty() ? "" : " + ") + std::string(siteHost(x));
+    return o;
+}
+
+int sourceEnvironments(const std::vector<Site>& sites, HostGame g, const int** ids) {
+    if (g == HostGame::Tmnf || sites.empty()) return siteEnvironments(Site::TMNF, ids);  // Stadium
+    for (Site x : sites)
+        if (x == Site::TMUF) return siteEnvironments(Site::TMUF, ids);
+    return siteEnvironments(sites[0], ids);
 }
 
 const char* hostGameShortName(HostGame g) {
