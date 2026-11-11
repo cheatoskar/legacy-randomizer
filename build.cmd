@@ -22,6 +22,7 @@ set "LR_OBJ=build\plugin\fetcher.obj build\plugin\history.obj build\plugin\icons
 set "IMGUI_OBJ=build\imgui\imgui.obj build\imgui\imgui_draw.obj build\imgui\imgui_tables.obj build\imgui\imgui_widgets.obj"
 link /nologo /DLL /MACHINE:X86 /SAFESEH /DYNAMICBASE /NXCOMPAT /OUT:dist\legacy_randomizer_plugin.dll /IMPLIB:build\legacy_randomizer_plugin.lib build\plugin\host_horizon.obj %LR_OBJ% %IMGUI_OBJ% wininet.lib ole32.lib windowscodecs.lib user32.lib kernel32.lib || exit /b 1
 copy /y src\plugin\plugin.json dist\plugin.json >nul || exit /b 1
+copy /y assets\icon.png dist\icon.png >nul || exit /b 1
 cl /nologo /c /O2 /MT /GS /W4 /WX /EHsc /std:c++17 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /I src /I third_party\imgui /Fo"build\test\\" test\ui_preview.cpp || exit /b 1
 link /nologo /MACHINE:X86 /SAFESEH /DYNAMICBASE /NXCOMPAT /SUBSYSTEM:CONSOLE /OUT:build\test\ui_preview.exe build\test\ui_preview.obj %LR_OBJ% %IMGUI_OBJ% build\imgui\imgui_impl_dx9.obj build\imgui\imgui_impl_win32.obj d3d9.lib wininet.lib ole32.lib windowscodecs.lib user32.lib gdi32.lib kernel32.lib || exit /b 1
 echo built dist\dinput8.dll and dist\legacy_randomizer.dll and build\test\core_test.exe

@@ -7,5 +7,6 @@
   "online": "solo-only",
   "abi": 1,
   "description": "Random Map Challenge in game",
-  "author": "cheatoskar"
+  "author": "cheatoskar",
+  "icon": "icon.png"
 }
