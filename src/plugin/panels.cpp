@@ -217,7 +217,9 @@ void Panels::drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool ed
     for (const PanelDef& d : kPanels) {
         const PanelState& w = state(d);
         if (!w.detached) continue;
-        bool show = menuOpen || (w.keepOpen && (!d.hud || (runActive && hudVisible)));
+        // HUD panels without a run stay hidden (empty "No map yet" cards), except while arranging the layout.
+        bool show = d.hud ? ((runActive && (menuOpen || (w.keepOpen && hudVisible))) || (menuOpen && editLayout))
+                          : (menuOpen || w.keepOpen);
         if (show) drawWindow(d, editLayout && menuOpen, false);
     }
 }
