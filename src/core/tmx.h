@@ -32,7 +32,7 @@ struct TmxFilter {
     bool requireAuthorTime = true;    // drop maps without a validated author time
     int maxAttempts = 12;             // random picks before giving up
 
-    // RandomizerTMF parity (query names as RandomizerTMF sends them; checked live 2026-11-11 on
+    // Search filters (TMX query names, checked live 2026-11-11 on
     // /api/tracks of tmnf, nations, sunrise and original: name, author, mood, routes, primarytype,
     // lbtype, uploadedafter/before, inscreenshot/infeatured/inhasrecord; vehicle on tmuf).
     std::string name;                 // part of the map name
@@ -47,6 +47,7 @@ struct TmxFilter {
     signed char flags[6] = {-1, -1, -1, -1, -1, -1};
 };
 
+// FlagReplays is never sent: on TMX, inreplays=1 returns no maps without a login (checked 2026-11-11).
 enum TmxFlag { FlagScreenshot = 0, FlagFeatured, FlagHasRecord, FlagReplays, FlagLatestAuthor, FlagSupporter, FlagCount };
 const char* tmxFlagQuery(int flag);  // "inscreenshot", ...
 std::string urlEncode(const std::string& s);

@@ -162,7 +162,7 @@ std::string buildRandomPath(const TmxFilter& f) {
     if (!f.uploadedAfter.empty()) appendQuery(q, "uploadedafter=" + urlEncode(f.uploadedAfter));
     if (!f.uploadedBefore.empty()) appendQuery(q, "uploadedbefore=" + urlEncode(f.uploadedBefore));
     for (int i = 0; i < FlagCount; ++i)
-        if (f.flags[i] >= 0) appendQuery(q, std::string(tmxFlagQuery(i)) + "=" + (f.flags[i] ? "1" : "0"));
+        if (f.flags[i] >= 0 && i != FlagReplays) appendQuery(q, std::string(tmxFlagQuery(i)) + "=" + (f.flags[i] ? "1" : "0"));
     return q.empty() ? "/trackrandom" : "/trackrandom?" + q;
 }
 

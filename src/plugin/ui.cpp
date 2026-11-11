@@ -611,7 +611,7 @@ void Plugin::pageFilters() {
         }
         ImGui::Dummy(ImVec2(0, 4 * sc));
         for (int i = 0; i < FlagCount; ++i)
-            if (ui::triState(kFlagNames[i], &settings_.flags[i])) markDirty();
+            if (i != FlagReplays && ui::triState(kFlagNames[i], &settings_.flags[i])) markDirty();
         ImGui::TextColored(style_.muted, "Map type: Race only. Stunts, Platform and Puzzle are planned.");
         ui::endCard();
     }

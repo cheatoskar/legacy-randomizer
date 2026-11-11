@@ -70,7 +70,8 @@ Filters (Filters page; rarely used ones under *Advanced*), checked live 2026-11-
 | Uploaded after/before | `uploadedafter=` / `uploadedbefore=` `YYYY-MM-DD` | ✓ | ✓ | ✓ | ✓ | (same API) |
 | Vehicle | `vehicle=0..6` | – | – | – | – | ✓ (TMUF only, shown only there) |
 | Has screenshot / Featured / Has record | `inscreenshot`, `infeatured`, `inhasrecord` `=0/1` | ✓ | ✓ | ✓ | ✓ | (same API) |
-| Has replays / Author's latest / Supporter | `inreplays`, `inlatestauthor`, `insupporter` | sent as RandomizerTMF does, not verified | | | | |
+| Author's latest / Supporter | `inlatestauthor`, `insupporter` | ✓ (checked live on tmnf 2026-11-11) | | | | |
+| Has replays | `inreplays` | not offered: `inreplays=1` returns no maps on TMX without a login | | | | |
 
 "–" for Author on the legacy sites: not verified (only checked on tmnf with a known uploader); the filter is sent there too. Environments (chips), difficulty, style (tag), author time window, exclude Unlimiter: as in 0.1. Maps of another type than Race are dropped (the run can't score Stunts/Platform/Puzzle).
 
