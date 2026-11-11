@@ -17,5 +17,6 @@ std::string fileStampLocal();    // "20261111-102205"
 std::string jsonEscape(const std::string& s);
 std::string formatMs(int ms);    // "0:42.310", "-:--.---" for <= 0
 std::string formatClock(int ms); // timer: "47:12", "1:02:03"
+std::vector<long long> parseIdList(const std::string& s);  // "123, 456 789" -> {123, 456, 789}
 
 } // namespace lr

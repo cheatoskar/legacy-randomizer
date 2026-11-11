@@ -63,6 +63,26 @@ const char* Session::medalName(Medal m) {
     return "";
 }
 
+const char* Session::goalKey(Goal g) {
+    switch (g) {
+    case Goal::Author: return "author";
+    case Goal::Gold: return "gold";
+    case Goal::Silver: return "silver";
+    case Goal::Bronze: return "bronze";
+    case Goal::Finished: return "finished";
+    }
+    return "author";
+}
+
+Goal Session::goalFromKey(const char* k) {
+    std::string s = k ? k : "";
+    if (s == "gold") return Goal::Gold;
+    if (s == "silver") return Goal::Silver;
+    if (s == "bronze") return Goal::Bronze;
+    if (s == "finished") return Goal::Finished;
+    return Goal::Author;
+}
+
 std::string Session::formatTime(int ms) {
     if (ms < 0) ms = 0;
     int h = ms / 3600000, m = (ms / 60000) % 60, s = (ms / 1000) % 60, f = ms % 1000;
@@ -115,18 +135,25 @@ FinishOutcome Session::finish(int timeMs) {
     o.medal = Session::medalFor(timeMs, cur_.medals);
     if (bestMs_ == 0 || timeMs < bestMs_) bestMs_ = timeMs;
     if (o.medal > medal_) medal_ = o.medal;
-    bool atGoal = cfg_.goal == Goal::Author ? o.medal == Medal::Author
-                                            : (o.medal == Medal::Author || o.medal == Medal::Gold);
+    Medal need = cfg_.goal == Goal::Author ? Medal::Author
+               : cfg_.goal == Goal::Gold   ? Medal::Gold
+               : cfg_.goal == Goal::Silver ? Medal::Silver
+               : cfg_.goal == Goal::Bronze ? Medal::Bronze
+                                           : Medal::None;
+    bool atGoal = cfg_.goal == Goal::Finished || o.medal >= need;
     if (!atGoal) return o;
     o.counted = true;
     if (o.medal == Medal::Author) {
         ++authors_;
         remainingMs_ += cfg_.bonusAuthorMs;
         resolve(EntryResult::Author);
-    } else {
+    } else if (o.medal == Medal::Gold) {
         ++golds_;
         remainingMs_ += cfg_.bonusGoldMs;
         resolve(EntryResult::Gold);
+    } else {
+        ++finished_;
+        resolve(EntryResult::Finished);
     }
     return o;
 }

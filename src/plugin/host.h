@@ -73,6 +73,8 @@ public:
     virtual void setInt(const char* key, int value) = 0;
 
     virtual std::string dataFolder() = 0;  // UTF-8, trailing backslash, exists
+    virtual std::string gameFolder() = 0;  // folder of the exe, trailing backslash ("" unknown)
+    virtual std::string userFolder() = 0;  // the game's user data folder (Documents\TrackMania...), "" unknown
 
     virtual HostGame game() = 0;
     virtual std::string gameName() = 0;

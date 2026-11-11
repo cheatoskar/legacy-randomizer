@@ -6,51 +6,56 @@
 
 #include "history.h"
 #include "host.h"
+#include "panels.h"
 #include "run.h"
 #include "settings.h"
 
-#define LR_PLUGIN_VERSION "0.1.0"
+#define LR_PLUGIN_VERSION "0.2.0"
 
 namespace lr {
-
-enum class MenuTab { Run = 0, History = 1, Settings = 2, About = 3 };
 
 class Plugin {
 public:
     explicit Plugin(Host& host);
     ~Plugin();
 
-    void init();       // settings, history, hotkeys
+    void init();       // settings, history, hotkeys, window layout
     void shutdown();   // stops the fetcher, releases textures
     void drawMenu();   // inside the host's page for this plugin (an ImGui child)
-    void drawOverlay();// every frame: run update + HUD
+    void drawOverlay();// every frame: run update + popped-out windows (the HUD)
     void onEvent(const GameEvent& e);
 
     Host& host() { return host_; }
     Settings& settings() { return settings_; }
     History& history() { return history_; }
     RunController& run() { return run_; }
-    void selectTab(MenuTab t) { forceTab_ = static_cast<int>(t); }  // next frame
+    Panels& panels() { return panels_; }
     void selectHistoryRun(int i) { histSel_ = i; }
+    void markDirty() { dirty_ = true; }
+
+    // rows of the page/panel table (panels.cpp): the same body in the menu and in a window
+    void pageRun();
+    void pageFilters();
+    void pageRules();
+    void pageLayout();
+    void pageHistory();
+    void pageAbout();
+    void panelTimer();
+    void panelMap();
+    void panelMedals();
+    void panelControls();
+    void panelSession();
+    void panelCard();
 
 private:
-    // menu pages
     void drawHeader();
-    void drawStartPage();
-    void drawLivePage();
     void drawResults(const RunRecord& r, bool live);
-    void drawHistoryPage();
-    void drawSettingsPage();
-    void drawAboutPage();
     void drawMapsTable(const RunRecord& r, const char* id, float height);
-    // HUD
-    void drawHud();
-    void drawHudMapCard(PreparedMap* m, float width, bool compact);
+    void drawMapCard(PreparedMap* m, float width, bool thumb);
+    void drawMedalRows(PreparedMap* m, float width);
+    void drawControls(float width);
     void drawResultsToast();
-    // helpers
     void ensureTexture(PreparedMap* m);
-    void section(const char* title);
-    void markDirty() { dirty_ = true; }
     ImFont* titleFont();
     std::string hotkey(int handle);
 
@@ -58,9 +63,9 @@ private:
     Settings settings_;
     History history_;
     RunController run_;
+    Panels panels_;
     UiStyle style_;
     bool dirty_ = false;
-    int forceTab_ = -1;
     int histSel_ = -1;
     bool toastDismissed_ = true;
     int hkSkip_ = 0, hkGoldSkip_ = 0, hkHud_ = 0, hkNext_ = 0;

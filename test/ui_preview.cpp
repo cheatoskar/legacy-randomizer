@@ -176,6 +176,8 @@ public:
     }
     void setInt(const char* key, int value) override { setString(key, std::to_string(value)); }
     std::string dataFolder() override { return data_; }
+    std::string gameFolder() override { return std::string(); }
+    std::string userFolder() override { return std::string(); }
     HostGame game() override { return game_; }
     std::string gameName() override {
         switch (game_) {
@@ -453,7 +455,7 @@ void drawShell(FakeHost& host, Plugin& plugin) {
     if (!host.menuOpen_) return;
     ImVec2 ds = ImGui::GetIO().DisplaySize;
     float sc = host.style_.scale;
-    ImVec2 size(980 * sc, 860 * sc);
+    ImVec2 size(1180 * sc, 900 * sc);
     if (size.y > ds.y - 40) size.y = ds.y - 40;
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(size, ImGuiCond_Appearing);
@@ -650,12 +652,19 @@ int runShots(App& app, std::string dir) {
         return 1;
     };
 
+    Panels& panels = plugin.panels();
     host.menuOpen_ = true;
-    plugin.selectTab(MenuTab::Run);
+    panels.select("run");
     shot(app, dir, "01-start.png");
-    plugin.selectTab(MenuTab::Settings);
-    shot(app, dir, "02-settings.png");
-    plugin.selectTab(MenuTab::Run);
+    panels.select("filters");
+    shot(app, dir, "02-filters.png");
+    panels.select("rules");
+    shot(app, dir, "03-rules.png");
+    panels.select("layout");
+    plugin.settings().layoutEdit = true;
+    shot(app, dir, "04-layout-editor.png");
+    plugin.settings().layoutEdit = false;
+    panels.select("run");
     app.frames(2);
     host.menuOpen_ = false;
 
@@ -665,23 +674,15 @@ int runShots(App& app, std::string dir) {
     long long first = run.displayMap()->tmx.id;
     app.waitUntil([&] { return run.fetcher().hasReady(); }, 60000);  // the next map, prefetched
 
-    // map 1: 12:48 played, a gold finish, back on the track
+    // map 1: a gold finish, then the author medal -> next (prefetched) map
     MapMedals m1 = run.displayMap()->medals;
-    host.advance(12 * 60000 + 48000);
+    host.advance(6 * 60000 + 31000);
     app.frames(2);
     int goldTime = m1.goldMs > m1.authorMs ? (m1.goldMs + m1.authorMs) / 2 : m1.goldMs;
     host.finish(goldTime);
     app.frames(2);
     host.restart();
-    shot(app, dir, "03-hud.png");
-    plugin.settings().hudCompact = true;
-    shot(app, dir, "04-hud-compact.png");
-    plugin.settings().hudCompact = false;
-    host.menuOpen_ = true;
-    shot(app, dir, "05-live.png");
-    host.menuOpen_ = false;
-
-    // author medal -> next (prefetched) map
+    app.frames(2);
     host.advance(95000);
     host.finish(m1.authorMs - 13);
     if (!app.waitUntil([&] { return run.phase() == Phase::Playing && run.displayMap() && run.displayMap()->tmx.id != first; }, 120000))
@@ -693,24 +694,30 @@ int runShots(App& app, std::string dir) {
     run.skip();
     if (!app.waitUntil([&] { return run.phase() == Phase::Playing && run.displayMap() && run.displayMap()->tmx.id != second; }, 120000))
         return fail("third map did not start");
-    // map 3: gold, then gold skip; then end the run
+    // map 3: a gold finish, back on the track: the HUD shots
     MapMedals m3 = run.displayMap()->medals;
-    host.advance(73000);
+    host.advance(4 * 60000 + 36000);
     app.frames(2);
-    host.finish(m3.goldMs);
+    host.finish(m3.goldMs > m3.authorMs ? (m3.goldMs + m3.authorMs) / 2 : m3.goldMs);
     app.frames(2);
     host.restart();
+    app.waitUntil([&] { return run.fetcher().hasReady(); }, 60000);
+    shot(app, dir, "05-hud-split.png");
+    panels.applyCompactPreset();
+    shot(app, dir, "06-hud-compact.png");
+    panels.applySplitPreset();
     app.frames(2);
+    // gold skip, end the run
     run.goldSkip();
     app.frames(4);
     run.stop();
     app.frames(4);
     host.menuOpen_ = true;
-    plugin.selectTab(MenuTab::Run);
-    shot(app, dir, "06-results.png");
-    plugin.selectTab(MenuTab::History);
+    panels.select("run");
+    shot(app, dir, "07-results.png");
+    panels.select("history");
     plugin.selectHistoryRun(0);
-    shot(app, dir, "07-history.png");
+    shot(app, dir, "08-history.png");
     return g_shotFails ? 1 : 0;
 }
 

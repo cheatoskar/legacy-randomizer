@@ -31,7 +31,25 @@ struct TmxFilter {
     bool excludeUnlimiter = true;     // drop maps with an Unlimiter version
     bool requireAuthorTime = true;    // drop maps without a validated author time
     int maxAttempts = 12;             // random picks before giving up
+
+    // RandomizerTMF parity (query names as RandomizerTMF sends them; checked live 2026-11-11 on
+    // /api/tracks of tmnf, nations, sunrise and original: name, author, mood, routes, primarytype,
+    // lbtype, uploadedafter/before, inscreenshot/infeatured/inhasrecord; vehicle on tmuf).
+    std::string name;                 // part of the map name
+    std::string author;               // uploader name (exact)
+    int primaryType = 0;              // 0 Race (default: other types can't be played by the run), -1 any
+    int moodMask = 0;                 // bits: 1 Sunrise, 2 Day, 4 Sunset, 8 Night; 0 any
+    int routesMask = 0;               // bits: 1 Single, 2 Multi, 4 Symmetric; 0 any
+    int lbType = -1;                  // 0 Standard, 1 Classic, 2 Nadeo, 3 Uncompetitive, 4 Beta, 5 Star; -1 any
+    int vehicle = 0;                  // TMUF only: car by environment id (1..7), 0 any
+    std::string uploadedAfter, uploadedBefore;  // "YYYY-MM-DD", "" none
+    // hidden In* flags: -1 any, 0 no, 1 yes (index = TmxFlag)
+    signed char flags[6] = {-1, -1, -1, -1, -1, -1};
 };
+
+enum TmxFlag { FlagScreenshot = 0, FlagFeatured, FlagHasRecord, FlagReplays, FlagLatestAuthor, FlagSupporter, FlagCount };
+const char* tmxFlagQuery(int flag);  // "inscreenshot", ...
+std::string urlEncode(const std::string& s);
 
 struct MapInfo {
     Site site = Site::TMNF;
@@ -42,6 +60,7 @@ struct MapInfo {
     int difficulty = -1;
     std::vector<int> tags;
     bool unlimiter = false;
+    int mood = -1, routes = -1, primaryType = -1, car = -1;  // -1 unknown
     std::string downloadUrl;
 };
 

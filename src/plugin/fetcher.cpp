@@ -1,11 +1,16 @@
 #include "fetcher.h"
 
 #include <chrono>
+#include <cstdio>
+#include <map>
 
 #include <windows.h>
 #include <objbase.h>
 
 #include "util.h"
+
+#include <random>
+#include <vector>
 
 namespace lr {
 
@@ -93,6 +98,15 @@ bool Fetcher::excluded(long long id) {
 
 void Fetcher::loop() {
     HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    {
+        Job copy;
+        {
+            std::lock_guard<std::mutex> l(mu_);
+            copy.autosaveDirs = job_.autosaveDirs;
+            copy.autosaveCache = job_.autosaveCache;
+        }
+        scanAutosaves(copy);
+    }
     for (;;) {
         {
             std::unique_lock<std::mutex> l(mu_);
@@ -109,7 +123,7 @@ void Fetcher::loop() {
         }
         if (ok) {
             ready_ = std::make_shared<PreparedMap>(std::move(m));
-            status_ = "Next map ready";
+            status_ = "ready";
             lastFailed_ = false;
             failures_ = 0;
             continue;
@@ -136,17 +150,28 @@ bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
         job.filter = job_.filter;
         job.folder = job_.folder;
         job.thumbs = job_.thumbs;
+        job.environments = job_.environments;
         status_ = std::string("Picking a random map on ") + siteHost(job.site);
     }
     HttpOptions http;
     http.timeoutMs = 10000;
     http.retries = 1;
     int rejected = 0;
+    static std::mt19937 rng(static_cast<unsigned>(GetTickCount()));
     for (int attempt = 0; attempt < 8; ++attempt) {
+        // environment first (chosen ones / equal distribution), then a random map of it
+        if (!job.environments.empty())
+            job.filter.environment = job.environments[std::uniform_int_distribution<size_t>(0, job.environments.size() - 1)(rng)];
         MapInfo info;
         TmxError e = getRandomMap(job.site, job.filter, info, http);
         if (!e.ok()) { err = e.message; return false; }
         if (excluded(info.id)) { ++rejected; continue; }
+        if (!info.uid.empty() && finished_.count(info.uid)) {
+            if (log_) log_(LogInfo, "map " + std::to_string(info.id) + " was finished before (autosave), next one");
+            exclude(info.id);
+            ++rejected;
+            continue;
+        }
         {
             std::lock_guard<std::mutex> l(mu_);
             status_ = "Downloading map " + std::to_string(info.id);
@@ -202,6 +227,76 @@ bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
     }
     err = rejected ? "TMX keeps returning maps you already played; loosen the filter" : "no usable map found";
     return false;
+}
+
+} // namespace lr
+
+namespace lr {
+
+// Map uids of every replay in the Autosaves folders. A cache (file name, size, write time -> uid) keeps
+// later starts fast; only new or changed replays are read (their first 64 KiB).
+void Fetcher::scanAutosaves(const Job& job) {
+    finished_.clear();
+    if (job.autosaveDirs.empty()) return;
+    {
+        std::lock_guard<std::mutex> l(mu_);
+        status_ = "Scanning your autosave replays";
+    }
+    std::map<std::string, std::string> cache, fresh;
+    std::string text;
+    if (!job.autosaveCache.empty() && readFile(job.autosaveCache, text)) {
+        size_t p = 0;
+        while (p < text.size()) {
+            size_t e = text.find('\n', p);
+            if (e == std::string::npos) e = text.size();
+            std::string line = text.substr(p, e - p);
+            size_t bar = line.rfind('|');
+            if (bar != std::string::npos) cache[line.substr(0, bar)] = line.substr(bar + 1);
+            p = e + 1;
+        }
+    }
+    int files = 0, read = 0;
+    for (const std::string& dir : job.autosaveDirs) {
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW(toWide(dir + "*.gbx").c_str(), &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            ++files;
+            std::string name = toUtf8(fd.cFileName);
+            std::string key = dir + name + "|" + std::to_string(fd.nFileSizeLow) + "|" +
+                              std::to_string((static_cast<unsigned long long>(fd.ftLastWriteTime.dwHighDateTime) << 32) | fd.ftLastWriteTime.dwLowDateTime);
+            std::string uid;
+            auto it = cache.find(key);
+            if (it != cache.end()) {
+                uid = it->second;
+            } else {
+                FILE* fp = nullptr;
+                if (_wfopen_s(&fp, toWide(dir + name).c_str(), L"rb") == 0 && fp) {
+                    std::vector<unsigned char> buf(64 * 1024);
+                    size_t n = std::fread(buf.data(), 1, buf.size(), fp);
+                    std::fclose(fp);
+                    uid = replayMapUid(buf.data(), n);
+                    ++read;
+                }
+            }
+            fresh[key] = uid;
+            if (!uid.empty()) finished_.insert(uid);
+            {
+                std::lock_guard<std::mutex> l(mu_);
+                if (stop_) { FindClose(h); return; }
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    if (!job.autosaveCache.empty() && read > 0) {
+        std::string out;
+        for (const auto& kv : fresh) out += kv.first + "|" + kv.second + "\n";
+        writeFileAtomic(job.autosaveCache, out);
+    }
+    if (log_)
+        log_(LogInfo, "autosaves: " + std::to_string(files) + " replays, " + std::to_string(finished_.size()) + " finished maps (" +
+                          std::to_string(read) + " read, rest from cache)");
 }
 
 } // namespace lr

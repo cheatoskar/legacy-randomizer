@@ -9,6 +9,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "../core/gbx.h"
 #include "../core/session.h"
@@ -39,7 +40,10 @@ public:
         TmxFilter filter;
         std::string folder;               // UTF-8, trailing backslash; maps go here
         ThumbSource thumbs = ThumbSource::Tmx;
-        std::set<long long> exclude;      // TMX ids not to pick (played before)
+        std::set<long long> exclude;      // TMX ids not to pick (played before, banned, skipped)
+        std::vector<int> environments;    // pick one of these per request (equal distribution); empty: any
+        std::vector<std::string> autosaveDirs;  // "never a map you finished before": replays in these folders
+        std::string autosaveCache;        // cache file for the replay scan ("" none)
     };
     using LogFn = std::function<void(LogLevel, const std::string&)>;
 
@@ -64,6 +68,8 @@ private:
     void loop();
     bool fetchOne(PreparedMap& out, std::string& err);
     bool excluded(long long id);
+    void scanAutosaves(const Job& job);
+    std::set<std::string> finished_;  // map uids with an autosave replay (worker thread only)
 
     LogFn log_;
     std::thread thread_;

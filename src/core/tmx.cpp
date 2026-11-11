@@ -15,7 +15,7 @@ namespace {
 const char* const kUserAgent = "LegacyRandomizer/0.1";
 const char* const kInfoFields =
     "TrackId,TrackName,UId,Uploader.Name,Difficulty,Environment,AuthorTime,GoldTarget,SilverTarget,"
-    "BronzeTarget,Tags,UnlimiterVersion";
+    "BronzeTarget,Tags,UnlimiterVersion,Mood,Routes,PrimaryType,Car";
 
 struct HttpReply {
     DWORD status = 0;
@@ -145,7 +145,52 @@ std::string buildRandomPath(const TmxFilter& f) {
     if (f.environment > 0) appendQuery(q, "environment=" + std::to_string(f.environment - 1));
     if (f.difficulty >= 0) appendQuery(q, "difficulty=" + std::to_string(f.difficulty));
     if (f.tag >= 0) appendQuery(q, "tag=" + std::to_string(f.tag));
+    if (!f.name.empty()) appendQuery(q, "name=" + urlEncode(f.name));
+    if (!f.author.empty()) appendQuery(q, "author=" + urlEncode(f.author));
+    if (f.primaryType >= 0) appendQuery(q, "primarytype=" + std::to_string(f.primaryType));
+    auto mask = [&q](const char* key, int m, int bits) {
+        if (m <= 0) return;
+        std::string v;
+        for (int i = 0; i < bits; ++i)
+            if (m & (1 << i)) v += (v.empty() ? "" : "%2C") + std::to_string(i);
+        appendQuery(q, std::string(key) + "=" + v);
+    };
+    mask("mood", f.moodMask, 4);
+    mask("routes", f.routesMask, 3);
+    if (f.lbType >= 0) appendQuery(q, "lbtype=" + std::to_string(f.lbType));
+    if (f.vehicle > 0) appendQuery(q, "vehicle=" + std::to_string(f.vehicle - 1));
+    if (!f.uploadedAfter.empty()) appendQuery(q, "uploadedafter=" + urlEncode(f.uploadedAfter));
+    if (!f.uploadedBefore.empty()) appendQuery(q, "uploadedbefore=" + urlEncode(f.uploadedBefore));
+    for (int i = 0; i < FlagCount; ++i)
+        if (f.flags[i] >= 0) appendQuery(q, std::string(tmxFlagQuery(i)) + "=" + (f.flags[i] ? "1" : "0"));
     return q.empty() ? "/trackrandom" : "/trackrandom?" + q;
+}
+
+const char* tmxFlagQuery(int flag) {
+    switch (flag) {
+    case FlagScreenshot: return "inscreenshot";
+    case FlagFeatured: return "infeatured";
+    case FlagHasRecord: return "inhasrecord";
+    case FlagReplays: return "inreplays";
+    case FlagLatestAuthor: return "inlatestauthor";
+    case FlagSupporter: return "insupporter";
+    }
+    return "";
+}
+
+std::string urlEncode(const std::string& s) {
+    static const char hex[] = "0123456789ABCDEF";
+    std::string o;
+    for (unsigned char c : s) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~') {
+            o += static_cast<char>(c);
+        } else {
+            o += '%';
+            o += hex[c >> 4];
+            o += hex[c & 15];
+        }
+    }
+    return o;
 }
 
 std::string buildInfoPath(long long id) {
@@ -197,6 +242,10 @@ TmxError parseInfoJson(Site s, const std::string& json, MapInfo& out) {
         if (v->type == Json::Array)
             for (const Json& t : v->arr) m.tags.push_back(static_cast<int>(t.asInt()));
     if (const Json* v = r.get("UnlimiterVersion")) m.unlimiter = v->type != Json::Null;
+    if (const Json* v = r.get("Mood")) m.mood = static_cast<int>(v->asInt(-1));
+    if (const Json* v = r.get("Routes")) m.routes = static_cast<int>(v->asInt(-1));
+    if (const Json* v = r.get("PrimaryType")) m.primaryType = static_cast<int>(v->asInt(-1));
+    if (const Json* v = r.get("Car")) m.car = static_cast<int>(v->asInt(-1));
     m.downloadUrl = downloadUrl(s, m.id);
     out = m;
     return {};
@@ -209,6 +258,10 @@ bool matchesFilter(const MapInfo& m, const TmxFilter& f) {
     if (f.authorTimeMaxMs > 0 && (m.authorMs <= 0 || m.authorMs > f.authorTimeMaxMs)) return false;
     if (f.environment > 0 && m.environment != f.environment) return false;
     if (f.difficulty >= 0 && m.difficulty != f.difficulty) return false;
+    if (f.primaryType >= 0 && m.primaryType >= 0 && m.primaryType != f.primaryType) return false;
+    if (f.moodMask > 0 && m.mood >= 0 && !(f.moodMask & (1 << m.mood))) return false;
+    if (f.routesMask > 0 && m.routes >= 0 && !(f.routesMask & (1 << m.routes))) return false;
+    if (f.vehicle > 0 && m.car > 0 && m.car != f.vehicle) return false;
     if (f.tag >= 0) {
         bool has = false;
         for (int t : m.tags) has = has || t == f.tag;

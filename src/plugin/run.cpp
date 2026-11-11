@@ -76,15 +76,31 @@ bool RunController::start(std::string* why) {
     if (injected_.empty()) {
         Fetcher::Job job;
         job.site = site_;
-        job.filter = settings_.filter();
+        job.filter = settings_.filter(site_);
         job.folder = host_.dataFolder() + "maps\\";
         job.thumbs = settings_.thumbSource;
         if (settings_.excludePlayed) job.exclude = history_.playedIds(siteHost(site_));
+        if (settings_.avoidSkipped)
+            for (long long id : history_.skippedIds(siteHost(site_))) job.exclude.insert(id);
+        for (long long id : parseIdList(settings_.banned)) job.exclude.insert(id);
+        // environments: the chosen ones, or with "equal distribution" all of the site's, one per request
+        const int* envs = nullptr;
+        int nEnv = siteEnvironments(site_, &envs);
+        for (int i = 0; i < nEnv; ++i)
+            if (settings_.envMask & (1 << (envs[i] - 1))) job.environments.push_back(envs[i]);
+        if (job.environments.empty() && settings_.equalEnvironments && nEnv > 1) job.environments.assign(envs, envs + nEnv);
+        if (settings_.excludeFinished) {
+            std::string user = host_.userFolder(), game = host_.gameFolder();
+            // Forever / Sunrise: the user folder (Documents\TrackMania...); ESWC: <exe dir>\GameData\...
+            if (!user.empty()) job.autosaveDirs.push_back(user + "Tracks\\Replays\\Autosaves\\");
+            if (!game.empty()) job.autosaveDirs.push_back(game + "GameData\\Tracks\\Replays\\Autosaves\\");
+            job.autosaveCache = host_.dataFolder() + "autosaves_cache.txt";
+        }
         fetcher_.start(job);
     }
     phase_ = Phase::Preparing;
     host_.log(LogInfo, std::string("run started: ") + modeKey(cfg_.mode) + ", goal " +
-                           (cfg_.goal == Goal::Author ? "author" : "gold") + ", site " + siteHost(site_));
+                           Session::goalKey(cfg_.goal) + ", site " + siteHost(site_));
     return true;
 }
 
@@ -241,6 +257,14 @@ void RunController::pump() {
         return;
     case Phase::Loading: {
         double age = now - loadSentAt_;
+        // hosts without race events (Sunrise in host 0.1.0): the map counts as started once it is
+        // loaded and the game is in the solo race for 2 s
+        if (pending_ && mapLoadedAt_ > loadSentAt_ && gs == GameState::SoloRace && now - mapLoadedAt_ > 2000 &&
+            (loadedUid_.empty() || pending_->uid.empty() || loadedUid_ == pending_->uid)) {
+            host_.log(LogInfo, "no RACE_START from the host: starting the map from MAP_LOADED");
+            beginMap();
+            return;
+        }
         if ((gs == GameState::MainMenu && age > 15000) || age > 45000) {
             if (error_.empty()) setError("The map did not start. Take another map, or wait.");
         }
@@ -267,6 +291,8 @@ void RunController::pump() {
     case Phase::Playing:
         if (userLeft_ && gs == GameState::MainMenu && !reloading_)
             notice_ = "You left the map. Resume it or skip it.";
+        else if (host_.game() == HostGame::Sunrise && notice_.empty())
+            notice_ = "Sunrise: finish detection not available yet, skip manually.";
         return;
     case Phase::Idle:
     case Phase::Over: return;
@@ -403,7 +429,7 @@ RunRecord RunController::snapshot(const char* by) const {
     r.game = host_.gameName();
     r.site = siteHost(site_);
     r.mode = modeKey(cfg_.mode);
-    r.goal = cfg_.goal == Goal::Author ? "author" : "gold";
+    r.goal = Session::goalKey(cfg_.goal);
     r.timeLimitMs = cfg_.mode == Mode::FreePlay ? 0 : cfg_.startMs;
     r.started = started_;
     r.ended = by[0] ? isoLocalTime() : std::string();
@@ -457,6 +483,7 @@ void RunController::onEvent(const GameEvent& e) {
     switch (e.type) {
     case EventType::MapLoaded:
         loadedUid_ = e.mapUid;
+        mapLoadedAt_ = host_.nowMs();
         if (phase_ == Phase::Playing && cur_) onOurMap_ = sameUid(e.mapUid, cur_->uid);
         return;
     case EventType::RaceStart: {

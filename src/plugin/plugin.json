@@ -1,0 +1,11 @@
+{
+  "id": "legacy-randomizer",
+  "name": "Legacy Randomizer",
+  "version": "0.2.0",
+  "dll": "legacy_randomizer_plugin.dll",
+  "games": ["eswc", "sunrise"],
+  "online": "solo-only",
+  "abi": 1,
+  "description": "Random Map Challenge in game",
+  "author": "cheatoskar"
+}

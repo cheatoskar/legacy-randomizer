@@ -263,6 +263,53 @@ GbxMapHeader parseChallengeHeader(const unsigned char* data, size_t size) {
     return h;
 }
 
+std::string replayMapUid(const unsigned char* data, size_t size) {
+    if (size < 21 || std::memcmp(data, "GBX", 3) != 0) return std::string();
+    Reader r(data, size);
+    r.pos = 3;
+    unsigned ver = r.u8();
+    ver |= r.u8() << 8;
+    if (ver < 3 || ver > 6 || r.u8() != 'B') return std::string();
+    if (ver >= 4) { r.u8(); r.u8(); r.u8(); }
+    else { r.u8(); r.u8(); }
+    uint32_t cls = r.u32();
+    if ((cls & 0xFFF) != 0) return std::string();
+    if (ver >= 6) r.u32();
+    uint32_t n = r.u32();
+    if (r.bad || n == 0 || n > 64) return std::string();
+    std::vector<std::pair<uint32_t, uint32_t>> ents;
+    for (uint32_t i = 0; i < n; ++i) {
+        uint32_t id = r.u32();
+        uint32_t sz = r.u32() & 0x7FFFFFFFu;
+        ents.push_back(std::make_pair(id, sz));
+    }
+    if (r.bad) return std::string();
+    for (const auto& e : ents) {
+        if (e.second > size - r.pos) break;
+        if ((e.first & 0xFFF) == 0x000 && e.second >= 8) {
+            // replay header chunk: u32 version, then (version >= 2) the map ident: uid, environment, author
+            Reader c(data + r.pos, e.second);
+            uint32_t v = c.u32();
+            if (v >= 2) {
+                Lookback lb;
+                std::string uid = lb.read(c);
+                if (!c.bad && uid.size() >= 20 && uid.size() <= 40) return uid;
+            }
+        }
+        r.pos += e.second;
+    }
+    // XML copy: <map uid="..." ...>
+    size_t lim = size < 65536 ? size : 65536;
+    std::string head(reinterpret_cast<const char*>(data), lim);
+    size_t m = head.find("<map uid=\"");
+    if (m != std::string::npos) {
+        m += 10;
+        size_t q = head.find('"', m);
+        if (q != std::string::npos && q - m <= 40) return head.substr(m, q - m);
+    }
+    return std::string();
+}
+
 GbxMapHeader readChallengeHeaderFile(const std::string& path) {
     GbxMapHeader h;
     FILE* fp = nullptr;

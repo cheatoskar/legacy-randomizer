@@ -63,12 +63,29 @@ static void testTmxHelpers() {
     CHECK_EQ(parseTrackIdFromLocation(""), -1LL);
 
     TmxFilter f;
-    CHECK_EQ(buildRandomPath(f), std::string("/trackrandom?inunlimiter=0&authortimemin=1"));
+    CHECK_EQ(buildRandomPath(f), std::string("/trackrandom?inunlimiter=0&authortimemin=1&primarytype=0"));
     f.environment = 7; f.difficulty = 2; f.tag = 5; f.authorTimeMaxMs = 60000;
-    CHECK_EQ(buildRandomPath(f), std::string("/trackrandom?inunlimiter=0&authortimemin=1&authortimemax=60000&environment=6&difficulty=2&tag=5"));
+    CHECK_EQ(buildRandomPath(f), std::string("/trackrandom?inunlimiter=0&authortimemin=1&authortimemax=60000&environment=6&difficulty=2&tag=5&primarytype=0"));
     f = TmxFilter();
-    f.excludeUnlimiter = false; f.requireAuthorTime = false;
+    f.excludeUnlimiter = false; f.requireAuthorTime = false; f.primaryType = -1;
     CHECK_EQ(buildRandomPath(f), std::string("/trackrandom"));
+    // RandomizerTMF parity filters
+    f.name = "a b&c"; f.author = "Chakal"; f.moodMask = 2 | 8; f.routesMask = 2; f.lbType = 1; f.vehicle = 1;
+    f.uploadedAfter = "2024-01-01"; f.flags[FlagScreenshot] = 1; f.flags[FlagFeatured] = 0;
+    CHECK_EQ(buildRandomPath(f), std::string("/trackrandom?name=a%20b%26c&author=Chakal&mood=1%2C3&routes=1&lbtype=1&vehicle=0"
+                                             "&uploadedafter=2024-01-01&inscreenshot=1&infeatured=0"));
+    {
+        MapInfo mi;
+        mi.authorMs = 30000; mi.mood = 2; mi.routes = 1; mi.primaryType = 0; mi.car = 1;
+        TmxFilter g;
+        g.moodMask = 4;  // sunset
+        CHECK(matchesFilter(mi, g));
+        g.moodMask = 2;  // day only
+        CHECK(!matchesFilter(mi, g));
+        g = TmxFilter();
+        mi.primaryType = 3;  // stunts
+        CHECK(!matchesFilter(mi, g));
+    }
 
     CHECK_EQ(std::string(siteHost(Site::TMN_ESWC)), std::string("nations.tm-exchange.com"));
     CHECK_EQ(downloadUrl(Site::TMO, 42), std::string("https://original.tm-exchange.com/trackgbx/42"));
@@ -430,6 +447,66 @@ static void testSession() {
     }
 }
 
+// ---------------------------------------------------------------- replay headers (finished-before rule)
+static void testReplays(const std::vector<fs::path>& dirs) {
+    section("replay map uid");
+    CHECK(replayMapUid(reinterpret_cast<const unsigned char*>("nope"), 4).empty());
+    for (const fs::path& dir : dirs) {
+        std::error_code ec;
+        if (!fs::exists(dir, ec)) { std::printf("  SKIP %s (not found)\n", dir.string().c_str()); continue; }
+        int files = 0, withUid = 0;
+        std::string sample;
+        for (const auto& e : fs::directory_iterator(dir, ec)) {
+            if (!e.is_regular_file() || _stricmp(e.path().extension().string().c_str(), ".gbx") != 0) continue;
+            if (++files > 200) break;
+            std::string bytes = readAll(e.path());
+            std::string uid = replayMapUid(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
+            if (!uid.empty()) { ++withUid; if (sample.empty()) sample = uid; }
+        }
+        std::printf("  %s: %d replays, %d with a map uid (e.g. %s)\n", dir.string().c_str(), files > 200 ? 200 : files, withUid, sample.c_str());
+        CHECK(files == 0 || withUid == (files > 200 ? 200 : files));
+    }
+}
+
+// ---------------------------------------------------------------- auto-skip goals (RandomizerTMF modes)
+static void testGoals() {
+    section("session: auto-skip goals");
+    CHECK_EQ(std::string(Session::goalKey(Goal::Silver)), std::string("silver"));
+    CHECK(Session::goalFromKey("finished") == Goal::Finished);
+    CHECK(Session::goalFromKey("nonsense") == Goal::Author);
+    {
+        SessionConfig c = SessionConfig::rmc(Goal::Silver);
+        Session s(c);
+        s.start();
+        s.mapStarted(mk(1));
+        CHECK(!s.finish(45000).counted);  // bronze only
+        FinishOutcome o = s.finish(39000);
+        CHECK(o.counted && o.medal == Medal::Silver);
+        CHECK_EQ(s.finishedCount(), 1);
+        CHECK(s.history().back().result == EntryResult::Finished);
+        s.mapStarted(mk(2));
+        o = s.finish(34000);  // gold also meets a silver goal and counts as gold
+        CHECK(o.counted && o.medal == Medal::Gold);
+        CHECK_EQ(s.goldCount(), 1);
+        CHECK(!s.canGoldSkip());  // gold skip only with goal Author
+    }
+    {
+        Session s(SessionConfig::rmc(Goal::Finished));
+        s.start();
+        s.mapStarted(mk(1));
+        FinishOutcome o = s.finish(99000);  // slower than bronze: still a finish
+        CHECK(o.counted && o.medal == Medal::None);
+        CHECK_EQ(s.finishedCount(), 1);
+    }
+    {
+        Session s(SessionConfig::rmc(Goal::Bronze));
+        s.start();
+        s.mapStarted(mk(1));
+        CHECK(!s.finish(60000).counted);
+        CHECK(s.finish(50000).counted);
+    }
+}
+
 // ---------------------------------------------------------------- live
 static void testLive() {
     section("live TMX (one random map per site, downloads 1 file)");
@@ -496,6 +573,17 @@ int main(int argc, char** argv) {
     testTmxHelpers();
     testGbx(maps);
     testSession();
+    testGoals();
+    {
+        std::vector<fs::path> replayDirs = {R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Replays\Autosaves)"};
+        wchar_t* docs = nullptr;
+        size_t n = 0;
+        if (_wdupenv_s(&docs, &n, L"USERPROFILE") == 0 && docs) {
+            replayDirs.push_back(fs::path(docs) / "Documents" / "TrackMania" / "Tracks" / "Replays" / "Autosaves");
+            free(docs);
+        }
+        testReplays(replayDirs);
+    }
     if (live) testLive();
     std::printf("\n%d checks, %d failures\n", g_checks, g_fails);
     return g_fails ? 1 : 0;

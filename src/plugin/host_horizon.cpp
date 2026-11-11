@@ -146,14 +146,20 @@ public:
         return static_cast<double>(c.QuadPart) * 1000.0 / freq_;
     }
 
-    // ABI 1.0 has no texture call. Until the host adds one (docs/plugin.md), use the D3D9 device the
-    // host hands out and create a managed texture (survives device resets), which is exactly what the
-    // host's ImGui DX9 renderer takes as ImTextureID.
+    // ABI minor 1: the host creates and releases textures. Older hosts (minor 0): use the D3D9 device the
+    // host hands out and create a managed texture ourselves (what the host's DX9 renderer takes).
+    bool hostTextures() { return g_api && g_api->abi_minor >= 1 && HOST_HAS(create_texture_rgba) && HOST_HAS(release_texture); }
     IDirect3DDevice9* dev() { return HOST_HAS(device) ? static_cast<IDirect3DDevice9*>(g_api->device()) : nullptr; }
-    bool canCreateTextures() override { return dev() != nullptr; }
+    bool canCreateTextures() override { return hostTextures() || dev() != nullptr; }
     ImTextureID createTextureRGBA(int w, int h, const void* rgba) override {
+        if (w <= 0 || h <= 0) return 0;
+        if (hostTextures()) {
+            ImTextureID t = static_cast<ImTextureID>(g_api->create_texture_rgba(g_self, static_cast<uint32_t>(w), static_cast<uint32_t>(h), rgba));
+            if (t) fromHost_.push_back(t);
+            return t;
+        }
         IDirect3DDevice9* d = dev();
-        if (!d || w <= 0 || h <= 0) return 0;
+        if (!d) return 0;
         IDirect3DTexture9* tex = nullptr;
         if (FAILED(d->CreateTexture(static_cast<UINT>(w), static_cast<UINT>(h), 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr)))
             return 0;
@@ -177,15 +183,37 @@ public:
         return static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(tex));  // ImTextureID is ImU64 since 1.91.4
     }
     void releaseTexture(ImTextureID t) override {
-        if (t) reinterpret_cast<IDirect3DTexture9*>(static_cast<uintptr_t>(t))->Release();
+        if (!t) return;
+        for (size_t i = 0; i < fromHost_.size(); ++i)
+            if (fromHost_[i] == t) {
+                fromHost_.erase(fromHost_.begin() + static_cast<long>(i));
+                if (HOST_HAS(release_texture)) g_api->release_texture(g_self, static_cast<uint64_t>(t));
+                return;
+            }
+        reinterpret_cast<IDirect3DTexture9*>(static_cast<uintptr_t>(t))->Release();
     }
 
-    bool canSaveReplay() override { return false; }  // not in ABI 1.0
+    // save_replay exists from ABI minor 1 but host 0.1.0 answers NOT_SUPPORTED everywhere: stays off.
+    bool canSaveReplay() override { return false; }
     lr::HostResult saveReplay(const std::string&) override { return lr::HostResult::NotSupported; }
+
+    std::string gameFolder() override {
+        const HorizonGameInfo* gi = HOST_HAS(game_info) ? g_api->game_info() : nullptr;
+        std::string d = gi ? s(gi->game_folder) : "";
+        if (!d.empty() && d.back() != '\\') d += '\\';
+        return d;
+    }
+    std::string userFolder() override {
+        const HorizonGameInfo* gi = HOST_HAS(game_info) ? g_api->game_info() : nullptr;
+        std::string d = gi ? s(gi->user_folder) : "";
+        if (!d.empty() && d.back() != '\\') d += '\\';
+        return d;
+    }
 
 private:
     double freq_ = 1.0;
     std::vector<std::unique_ptr<std::function<void()>>> hotkeys_;
+    std::vector<ImTextureID> fromHost_;  // textures made by the host (released through it)
 };
 
 HorizonHost* g_host = nullptr;

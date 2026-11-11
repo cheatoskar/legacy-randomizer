@@ -38,6 +38,7 @@ public:
     bool save(RunRecord& r, std::string* pathOut);  // sets r.file
     const std::vector<RunRecord>& runs() const { return runs_; }
     std::set<long long> playedIds(const std::string& site) const;  // TMX ids of every map in saved runs of that site
+    std::set<long long> skippedIds(const std::string& site) const; // TMX ids skipped in saved runs of that site
 
 private:
     std::string folder_;

@@ -19,11 +19,13 @@
 namespace lr {
 
 enum class Mode { RMC, RMS, FreePlay };
-enum class Goal { Author, Gold };
+// Goal = RandomizerTMF's auto-skip mode: the medal (or any finish) that completes a map.
+enum class Goal { Author, Gold, Silver, Bronze, Finished };
 enum class Medal { None = 0, Bronze, Silver, Gold, Author };
 enum class State { Idle, WaitingForMap, Playing, Over };
 enum class SkipKind { NotAllowed, Free, Normal };
-enum class EntryResult { Author, Gold, GoldSkip, Skipped, FreeSkipped, Unfinished };
+// Finished: goal Silver/Bronze/Finished reached with less than gold (counted in finishedCount()).
+enum class EntryResult { Author, Gold, GoldSkip, Skipped, FreeSkipped, Unfinished, Finished };
 
 struct MapMedals {
     int authorMs = 0, goldMs = 0, silverMs = 0, bronzeMs = 0;  // 0 = unknown
@@ -71,6 +73,8 @@ public:
 
     static Medal medalFor(int timeMs, const MapMedals& m);
     static const char* medalName(Medal m);
+    static const char* goalKey(Goal g);          // "author", "gold", "silver", "bronze", "finished"
+    static Goal goalFromKey(const char* key);   // unknown -> Author
     static std::string formatTime(int ms);  // "12:34.567" / "1:02:03.004"
 
     // --- events in ---
@@ -91,6 +95,7 @@ public:
     int authorCount() const { return authors_; }
     int goldCount() const { return golds_; }          // gold finishes + gold skips
     int skipCount() const { return skips_; }          // all skips incl. free ones, not gold skips
+    int finishedCount() const { return finished_; }   // goal reached below gold (goal Silver/Bronze/Finished)
     int freeSkipsLeft() const;                        // -1 = unlimited
     const SessionMap* currentMap() const { return state_ == State::Playing ? &cur_ : nullptr; }
     int currentSpentMs() const { return spentMs_; }
@@ -108,7 +113,7 @@ private:
     SessionMap cur_;
     int remainingMs_ = 0, elapsedMs_ = 0, spentMs_ = 0, bestMs_ = 0;
     Medal medal_ = Medal::None;
-    int authors_ = 0, golds_ = 0, skips_ = 0, freeUsed_ = 0;
+    int authors_ = 0, golds_ = 0, skips_ = 0, freeUsed_ = 0, finished_ = 0;
     std::vector<HistoryEntry> history_;
 };
 

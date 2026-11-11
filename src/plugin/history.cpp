@@ -15,6 +15,7 @@ const char* resultKey(EntryResult r) {
     case EntryResult::Skipped: return "skipped";
     case EntryResult::FreeSkipped: return "free_skip";
     case EntryResult::Unfinished: return "unfinished";
+    case EntryResult::Finished: return "finished";
     }
     return "unfinished";
 }
@@ -160,6 +161,15 @@ std::set<long long> History::playedIds(const std::string& site) const {
         if (r.site == site)
             for (const RunMapRecord& m : r.maps)
                 if (m.tmxId > 0) ids.insert(m.tmxId);
+    return ids;
+}
+
+std::set<long long> History::skippedIds(const std::string& site) const {
+    std::set<long long> ids;
+    for (const RunRecord& r : runs_)
+        if (r.site == site)
+            for (const RunMapRecord& m : r.maps)
+                if (m.tmxId > 0 && (m.result == "skipped" || m.result == "free_skip")) ids.insert(m.tmxId);
     return ids;
 }
 

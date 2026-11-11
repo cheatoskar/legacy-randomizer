@@ -132,4 +132,23 @@ std::string formatClock(int ms) {
     return b;
 }
 
+std::vector<long long> parseIdList(const std::string& s) {
+    std::vector<long long> out;
+    long long v = 0;
+    bool in = false;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') {
+            v = v * 10 + (c - '0');
+            in = true;
+            if (v > 4000000000LL) { v = 0; in = false; }
+        } else {
+            if (in && v > 0) out.push_back(v);
+            v = 0;
+            in = false;
+        }
+    }
+    if (in && v > 0) out.push_back(v);
+    return out;
+}
+
 } // namespace lr

@@ -30,6 +30,10 @@ GbxMapHeader parseChallengeHeader(const unsigned char* data, size_t size);
 // path is UTF-8 (plain ANSI paths that are not valid UTF-8 are opened as ANSI).
 GbxMapHeader readChallengeHeaderFile(const std::string& path);
 
+// UID of the map a .Replay.Gbx was driven on (header chunk 0x...000, XML copy as fallback); "" unknown.
+// Used to find maps the player has finished before (the game's Autosaves folder).
+std::string replayMapUid(const unsigned char* data, size_t size);
+
 // "%24000%5e%5e" -> "$000^^"
 std::string percentDecode(const std::string& s);
 // Removes $rgb / $w / $o ... formatting; "$$" becomes "$".
