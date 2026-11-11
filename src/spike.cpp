@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#include "reflect/reflect.h"
+
 namespace {
 
 // Per exe: where the game keeps what the "Play Track > Solo > OK" path touches.
@@ -147,7 +149,42 @@ void dumpState() {
     }
 }
 
-// The game-side part of F8, in its own function so __try has no C++ objects to unwind.
+// Reflection self-check: the offsets found by hand must equal what the engine's own tables say by name.
+void reflectionCheck() {
+    if (!reflect::ready()) {
+        logLine("reflection: registry empty or unknown exe");
+        return;
+    }
+    logLine("reflection: CTrackMania.ChallengeType=0x%X (table 0x%X), MenuManager=0x%X, Races=0x%X",
+            reflect::offsetOf("CTrackMania", "ChallengeType"), (unsigned)g->appChallengeType,
+            reflect::offsetOf("CTrackMania", "MenuManager"), reflect::offsetOf("CTrackMania", "Races"));
+    logLine("reflection: CTrackManiaRace.ButtonQuitOnClick=%p, CTrackManiaRace.Game=0x%X",
+            reflect::methodOf("CTrackManiaRace", "ButtonQuitOnClick"), reflect::offsetOf("CTrackManiaRace", "Game"));
+    wchar_t path[MAX_PATH];
+    if (gameDir(path, MAX_PATH)) {
+        wcscat_s(path, L"legacy_randomizer_reflection.json");
+        logLine("reflection: %d classes written to legacy_randomizer_reflection.json", reflect::dumpJson(path));
+    }
+}
+
+// Ctrl+F11 in a solo race: press the race's own "quit" button (CTrackManiaRace::ButtonQuitOnClick, found by name).
+void quitRace() {
+    using QuitFn = void(__thiscall*)(void*);
+    void* fn = reflect::methodOf("CTrackManiaRace", "ButtonQuitOnClick");
+    int racesOff = reflect::offsetOf("CTrackMania", "Races");
+    __try {
+        void* app = *reinterpret_cast<void**>(g->app);
+        void* race = (app && racesOff >= 0) ? at<void*>(app, racesOff) : nullptr;
+        logLine("quit: app=%p race=%p fn=%p", app, race, fn);
+        if (!race || !fn) return;
+        reinterpret_cast<QuitFn>(fn)(race);
+        logLine("quit: ButtonQuitOnClick called");
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        logLine("quit: exception 0x%08X", GetExceptionCode());
+    }
+}
+
+// The game-side part of F11, in its own function so __try has no C++ objects to unwind.
 int playInfo(void* app, void* menus, void* info) {
     __try {
         using MallocFn = void*(__cdecl*)(size_t);
@@ -259,10 +296,14 @@ LRESULT CALLBACK getMsgProc(int code, WPARAM wParam, LPARAM lParam) {
         if (msg->message == WM_KEYDOWN && !(msg->lParam & (1 << 30))) {
             // F11: TM Vibrant Shaders uses F5-F8 and F12, eswc-autosave F9
             if (msg->wParam == VK_F11) {
-                if (GetKeyState(VK_SHIFT) < 0)
+                if (GetKeyState(VK_SHIFT) < 0) {
                     dumpState();
-                else
+                    reflectionCheck();
+                } else if (GetKeyState(VK_CONTROL) < 0) {
+                    quitRace();
+                } else {
                     playTestMap();
+                }
             }
         }
     }
@@ -298,9 +339,10 @@ extern "C" int __cdecl LegacyRandomizerInit(unsigned) {
         return 0;
     }
     logLine("game: %s", g->name);
+    if (!reflect::init(timestamp)) logLine("reflection: no registry address for this exe");
     g_mainThread = GetCurrentThreadId();
     g_msgHook = SetWindowsHookExW(WH_GETMESSAGE, getMsgProc, nullptr, g_mainThread);
-    logLine(g_msgHook ? "ready: Shift+F11 = log state, F11 = play a test map in solo (main menu only)" : "key hook failed");
+    logLine(g_msgHook ? "ready: F11 = play a test map (main menu), Ctrl+F11 = quit the solo race, Shift+F11 = log state + reflection dump" : "key hook failed");
     g_ok = g_msgHook != nullptr;
     return g_ok ? 1 : 0;
 }
