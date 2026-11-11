@@ -53,6 +53,10 @@ static void testJson() {
 // ---------------------------------------------------------------- tmx helpers
 static void testTmxHelpers() {
     section("tmx helpers");
+    CHECK_EQ(thumbnailPath(42), std::string("/trackshow/42/image/1"));
+    CHECK(looksLikeImage(std::string("\xFF\xD8\xFF\xE0", 4)));
+    CHECK(looksLikeImage(std::string("\x89PNG\r\n\x1a\n", 8)));
+    CHECK(!looksLikeImage("<html>"));
     CHECK_EQ(parseTrackIdFromLocation("/trackshow/13775497"), 13775497LL);
     CHECK_EQ(parseTrackIdFromLocation("/trackshow/"), -1LL);
     CHECK_EQ(parseTrackIdFromLocation("/error"), -1LL);
@@ -135,12 +139,53 @@ static void testGbx(const fs::path& mapsDir) {
     const char bad[] = "GBX\x06\x00TUCR\x00\x30\x00\x24\x10\x00\x00\x00\x01\x00\x00\x00";
     CHECK(!parseChallengeHeader(reinterpret_cast<const unsigned char*>(bad), sizeof bad - 1).ok);
 
+    // synthetic TMF-style header with an info chunk and an embedded thumbnail
+    {
+        auto u32 = [](std::string& o, uint32_t v) {
+            for (int i = 0; i < 4; ++i) o += static_cast<char>((v >> (8 * i)) & 0xFF);
+        };
+        auto str = [&u32](std::string& o, const std::string& s) { u32(o, static_cast<uint32_t>(s.size())); o += s; };
+        std::string info;
+        info += '\x05';
+        u32(info, 3);
+        u32(info, 0x40000000u); str(info, "uidXYZ");
+        u32(info, 0x40000000u); str(info, "Stadium");
+        u32(info, 0x40000000u); str(info, "someone");
+        str(info, "$f00Red$z map");
+        const std::string jpg("\xFF\xD8\xFF\xE0" "fakejpeg", 12);
+        std::string thumb;
+        u32(thumb, 1);
+        u32(thumb, static_cast<uint32_t>(jpg.size()));
+        thumb += "<Thumbnail.jpg>" + jpg + "</Thumbnail.jpg><Comments>";
+        str(thumb, "hello");
+        thumb += "</Comments>";
+        std::string body;
+        u32(body, 2);
+        u32(body, 0x03043003u); u32(body, static_cast<uint32_t>(info.size()));
+        u32(body, 0x03043007u); u32(body, static_cast<uint32_t>(thumb.size()) | 0x80000000u);
+        body += info + thumb;
+        std::string file("GBX\x06\x00" "BUCR", 9);
+        u32(file, 0x03043000u);
+        u32(file, static_cast<uint32_t>(body.size()));
+        file += body;
+        GbxMapHeader h = parseChallengeHeader(reinterpret_cast<const unsigned char*>(file.data()), file.size());
+        CHECK(h.ok);
+        CHECK_EQ(h.uid, std::string("uidXYZ"));
+        CHECK_EQ(h.name, std::string("$f00Red$z map"));
+        CHECK_EQ(h.thumbnailJpeg, jpg);
+        CHECK_EQ(h.comments, std::string("hello"));
+        // truncated thumbnail chunk: header still parses, thumbnail is dropped
+        std::string cut = file.substr(0, file.size() - 20);
+        GbxMapHeader h2 = parseChallengeHeader(reinterpret_cast<const unsigned char*>(cut.data()), cut.size());
+        CHECK(!h2.ok || h2.thumbnailJpeg.empty());
+    }
+
     std::error_code ec;
     if (!fs::exists(mapsDir, ec)) {
         std::printf("  SKIP real maps (folder not found: %s)\n", mapsDir.string().c_str());
         return;
     }
-    int files = 0, okCount = 0, binTimes = 0, binName = 0, xmlTimeMatch = 0, xmlTimeChecked = 0;
+    int files = 0, okCount = 0, binTimes = 0, binName = 0, xmlTimeMatch = 0, xmlTimeChecked = 0, thumbs = 0;
     bool first = true;
     for (const auto& e : fs::recursive_directory_iterator(mapsDir, ec)) {
         if (!e.is_regular_file()) continue;
@@ -154,6 +199,7 @@ static void testGbx(const fs::path& mapsDir) {
         ++okCount;
         binTimes += h.timesFromBinary;
         binName += h.nameFromBinary;
+        if (looksLikeImage(h.thumbnailJpeg)) ++thumbs;
         CHECK(!h.uid.empty());
         CHECK(!h.name.empty());
         CHECK(!h.environment.empty());
@@ -173,8 +219,8 @@ static void testGbx(const fs::path& mapsDir) {
                         Session::formatTime(h.bronzeMs).c_str());
         }
     }
-    std::printf("  %d files, %d parsed, binary times %d, binary identity %d, xml cross-check %d/%d\n", files, okCount,
-                binTimes, binName, xmlTimeMatch, xmlTimeChecked);
+    std::printf("  %d files, %d parsed, binary times %d, binary identity %d, xml cross-check %d/%d, jpeg thumbnails %d\n",
+                files, okCount, binTimes, binName, xmlTimeMatch, xmlTimeChecked, thumbs);
     CHECK(files > 0);
     CHECK_EQ(files, okCount);
     CHECK_EQ(binTimes, okCount);

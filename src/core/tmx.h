@@ -68,9 +68,15 @@ bool matchesFilter(const MapInfo& m, const TmxFilter& f);
 // --- network ---
 TmxError getMapInfo(Site s, long long id, MapInfo& out, const HttpOptions& o = HttpOptions());
 TmxError getRandomMap(Site s, const TmxFilter& f, MapInfo& out, const HttpOptions& o = HttpOptions());
-// Downloads the .Challenge.Gbx to path (via a temp file, only replaced on success) and
+// Downloads the .Challenge.Gbx to path (UTF-8; via a temp file, only replaced on success) and
 // optionally returns the bytes.
 TmxError downloadMap(Site s, long long id, const std::string& path, std::string* bytesOut = nullptr,
                      const HttpOptions& o = HttpOptions());
+
+// Screenshot TMX shows for a map: GET /trackshow/<id>/image/1 (JPEG; checked live on
+// sunrise.tm-exchange.com and tmnf.exchange 2026-11-11). Fails when the map has none.
+std::string thumbnailPath(long long id);       // "/trackshow/<id>/image/1"
+bool looksLikeImage(const std::string& bytes); // JPEG or PNG signature
+TmxError downloadThumbnail(Site s, long long id, std::string& bytes, const HttpOptions& o = HttpOptions());
 
 } // namespace lr

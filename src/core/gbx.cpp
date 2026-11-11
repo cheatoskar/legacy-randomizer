@@ -6,6 +6,8 @@
 #include <cstring>
 #include <vector>
 
+#include <windows.h>
+
 namespace lr {
 
 namespace {
@@ -96,6 +98,30 @@ bool parseInfoChunk(const unsigned char* d, size_t sz, GbxMapHeader& h) {
     h.uid = uid; h.environment = coll; h.author = author; h.name = name;
     h.nameFromBinary = true;
     return true;
+}
+
+// 0x...3007: u32 version; version >= 1: u32 jpeg size, "<Thumbnail.jpg>", jpeg, "</Thumbnail.jpg>",
+// "<Comments>", string, "</Comments>"
+bool parseThumbChunk(const unsigned char* d, size_t sz, GbxMapHeader& h) {
+    Reader r(d, sz);
+    uint32_t ver = r.u32();
+    if (r.bad || ver == 0) return false;
+    uint32_t jpgSize = r.u32();
+    static const char kOpen[] = "<Thumbnail.jpg>";
+    const size_t openLen = sizeof kOpen - 1;
+    if (r.bad || !r.has(openLen) || std::memcmp(d + r.pos, kOpen, openLen) != 0) return false;
+    r.pos += openLen;
+    if (jpgSize > sz - r.pos) return false;
+    h.thumbnailJpeg.assign(reinterpret_cast<const char*>(d + r.pos), jpgSize);
+    r.pos += jpgSize;
+    static const char kClose[] = "</Thumbnail.jpg><Comments>";
+    const size_t closeLen = sizeof kClose - 1;
+    if (r.has(closeLen) && std::memcmp(d + r.pos, kClose, closeLen) == 0) {
+        r.pos += closeLen;
+        std::string c = r.str();
+        if (!r.bad) h.comments = c;
+    }
+    return !h.thumbnailJpeg.empty();
 }
 
 // attribute value of the first <tag ... attr="..."> in xml; false when missing
@@ -223,6 +249,7 @@ GbxMapHeader parseChallengeHeader(const unsigned char* data, size_t size) {
         uint32_t num = e.id & 0xFFF;
         if (num == 0x002) haveTimes = parseTimesChunk(d, e.size, h);
         else if (num == 0x003) haveInfo = parseInfoChunk(d, e.size, h);
+        else if (num == 0x007) parseThumbChunk(d, e.size, h);
         else if (num == 0x005) {
             Reader xr(d, e.size);
             xml = xr.str();
@@ -239,7 +266,10 @@ GbxMapHeader parseChallengeHeader(const unsigned char* data, size_t size) {
 GbxMapHeader readChallengeHeaderFile(const std::string& path) {
     GbxMapHeader h;
     FILE* fp = nullptr;
-    if (fopen_s(&fp, path.c_str(), "rb") != 0 || !fp) { h.error = "cannot open " + path; return h; }
+    wchar_t wpath[1024];
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.c_str(), -1, wpath, 1024) > 0) _wfopen_s(&fp, wpath, L"rb");
+    else fopen_s(&fp, path.c_str(), "rb");
+    if (!fp) { h.error = "cannot open " + path; return h; }
     // the header is always at the start of the file; 256 KiB is far more than needed
     std::vector<unsigned char> buf(256 * 1024);
     size_t n = std::fread(buf.data(), 1, buf.size(), fp);

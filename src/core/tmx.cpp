@@ -253,17 +253,52 @@ TmxError downloadMap(Site s, long long id, const std::string& path, std::string*
     if (r.status != 200) return {"download answered HTTP " + std::to_string(r.status)};
     if (r.body.size() < 16 || std::memcmp(r.body.data(), "GBX", 3) != 0)
         return {"downloaded file is not a GBX (" + std::to_string(r.body.size()) + " bytes)"};
-    std::string tmp = path + ".part";
+    // path is UTF-8; fall back to ANSI for byte strings that are not valid UTF-8
+    std::wstring wpath;
+    int wn = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.c_str(), -1, nullptr, 0);
+    if (wn > 0) {
+        wpath.resize(static_cast<size_t>(wn));
+        MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wpath[0], wn);
+        wpath.resize(static_cast<size_t>(wn - 1));
+    } else {
+        int an = MultiByteToWideChar(CP_ACP, 0, path.c_str(), -1, nullptr, 0);
+        if (an <= 0) return {"bad file name " + path};
+        wpath.resize(static_cast<size_t>(an));
+        MultiByteToWideChar(CP_ACP, 0, path.c_str(), -1, &wpath[0], an);
+        wpath.resize(static_cast<size_t>(an - 1));
+    }
+    std::wstring tmp = wpath + L".part";
     FILE* fp = nullptr;
-    if (fopen_s(&fp, tmp.c_str(), "wb") != 0 || !fp) return {"cannot write " + tmp};
+    if (_wfopen_s(&fp, tmp.c_str(), L"wb") != 0 || !fp) return {"cannot write " + path + ".part"};
     size_t wrote = std::fwrite(r.body.data(), 1, r.body.size(), fp);
     int closed = std::fclose(fp);
-    if (wrote != r.body.size() || closed != 0) { std::remove(tmp.c_str()); return {"short write to " + tmp}; }
-    if (!MoveFileExA(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        std::remove(tmp.c_str());
-        return {winErr("rename of downloaded file", GetLastError())};
+    if (wrote != r.body.size() || closed != 0) { DeleteFileW(tmp.c_str()); return {"short write to " + path + ".part"}; }
+    if (!MoveFileExW(tmp.c_str(), wpath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DWORD e2 = GetLastError();
+        DeleteFileW(tmp.c_str());
+        return {winErr("rename of downloaded file", e2)};
     }
     if (bytesOut) *bytesOut = std::move(r.body);
+    return {};
+}
+
+std::string thumbnailPath(long long id) { return "/trackshow/" + std::to_string(id) + "/image/1"; }
+
+bool looksLikeImage(const std::string& b) {
+    if (b.size() >= 3 && static_cast<unsigned char>(b[0]) == 0xFF && static_cast<unsigned char>(b[1]) == 0xD8 &&
+        static_cast<unsigned char>(b[2]) == 0xFF)
+        return true;  // JPEG
+    if (b.size() >= 8 && std::memcmp(b.data(), "\x89PNG\r\n\x1a\n", 8) == 0) return true;
+    return false;
+}
+
+TmxError downloadThumbnail(Site s, long long id, std::string& bytes, const HttpOptions& o) {
+    HttpReply r;
+    TmxError e = httpRequest(s, thumbnailPath(id), "GET", o, r);
+    if (!e.ok()) return e;
+    if (r.status != 200) return {"thumbnail answered HTTP " + std::to_string(r.status)};
+    if (!looksLikeImage(r.body)) return {"thumbnail is not a JPEG/PNG image"};
+    bytes = std::move(r.body);
     return {};
 }
 
