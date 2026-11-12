@@ -329,7 +329,11 @@ void Plugin::pageRun() {
     const float gap = 12 * sc;
     const Session* s = run_.session();
     if (run_.active() && s) {
-        ui::beginCard("Run in progress", Icon::Timer);
+        // the same two columns as before the start: the big red Stop where Start was
+        const bool stack = stacked();
+        const float colW = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+        ImGui::BeginGroup();
+        ui::beginCard("Run in progress", Icon::Timer, colW);
         panelTimer();
         char b[32];
         ui::medalDot(kAuthor);
@@ -343,21 +347,20 @@ void Plugin::pageRun() {
         ImGui::TextUnformatted(b);
         ui::flowNext(ImGui::CalcTextSize(phaseName(run_.phase())).x, 16 * sc);
         ImGui::TextColored(style_.muted, "%s", phaseName(run_.phase()));
-        stopButton(ImVec2(120 * sc, 0));
+        ImGui::Dummy(ImVec2(0, 6 * sc));
+        if (ui::bigButton("Stop", Icon::Stop, ImVec2(ImGui::GetContentRegionAvail().x, 46 * sc), true, &style_.bad)) requestStop();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("End the run and save it");
         ui::endCard();
-        const bool stack = stacked();
-        float half = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
-        ImGui::BeginGroup();
-        ui::beginCard("Current map", Icon::Map, half);
-        std::shared_ptr<PreparedMap> m = run_.displayMap();
-        if (m) drawMapCard(m.get(), ImGui::GetContentRegionAvail().x, true);
-        else ui::textFit(run_.fetchStatus().c_str(), 0, run_.fetchFailing() ? &style_.bad : &style_.muted);
+        ui::beginCard("Medals", Icon::Medal, colW);
+        panelMedals();
         ui::endCard();
         ImGui::EndGroup();
         if (!stack) ImGui::SameLine(0, gap);
         ImGui::BeginGroup();
-        ui::beginCard("Medals", Icon::Medal);
-        panelMedals();
+        ui::beginCard("Current map", Icon::Map);
+        std::shared_ptr<PreparedMap> m = run_.displayMap();
+        if (m) drawMapCard(m.get(), ImGui::GetContentRegionAvail().x, true);
+        else ui::textFit(run_.fetchStatus().c_str(), 0, run_.fetchFailing() ? &style_.bad : &style_.muted);
         ui::endCard();
         ui::beginCard("Controls", Icon::Controls);
         panelControls(false);

@@ -52,7 +52,8 @@ bool combo(const char* id, int* current, const char* const* items, int count);
 bool beginCombo(const char* id, const char* preview);  // + ImGui::EndCombo() when true
 bool disclosure(const char* label, bool* open);       // a subtle row with a chevron
 
-bool bigButton(const char* label, Icon ic, ImVec2 size, bool enabled = true);
+// fill: nullptr = the accent (dark text); another colour (the style's "bad" for Stop) with white text
+bool bigButton(const char* label, Icon ic, ImVec2 size, bool enabled = true, const ImVec4* fill = nullptr);
 void textRight(const char* text, float rightX, const ImVec4* color = nullptr);  // same line, right-aligned
 void medalDot(const ImVec4& c);
 

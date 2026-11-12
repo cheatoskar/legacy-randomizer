@@ -484,20 +484,20 @@ bool disclosure(const char* label, bool* open) {
     return clicked;
 }
 
-bool bigButton(const char* label, Icon ic, ImVec2 size, bool enabled) {
+bool bigButton(const char* label, Icon ic, ImVec2 size, bool enabled, const ImVec4* fill) {
     ImVec2 p = ImGui::GetCursorScreenPos();
     bool clicked = ImGui::InvisibleButton(label, size) && enabled;
     bool hov = ImGui::IsItemHovered() && enabled;
     bool held = ImGui::IsItemActive() && enabled;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float a = enabled ? (held ? 1.0f : hov ? 0.95f : 0.85f) : 0.3f;
-    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), col(g_style.accent, a), 8 * sc());
+    dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), col(fill ? *fill : g_style.accent, a), 8 * sc());
     if (g_style.title) ImGui::PushFont(g_style.title);
     float is = ImGui::GetTextLineHeight() * 0.75f, gap = 10 * sc();
     std::string lab = ellipsize(label, size.x - is - gap - 24 * sc());
     ImVec2 ts = ImGui::CalcTextSize(lab.c_str());
     float x = p.x + (size.x - ts.x - is - gap) * 0.5f;
-    ImU32 ink = IM_COL32(20, 16, 12, enabled ? 255 : 160);
+    ImU32 ink = fill ? IM_COL32(255, 255, 255, enabled ? 255 : 160) : IM_COL32(20, 16, 12, enabled ? 255 : 160);
     drawIcon(dl, ic, ImVec2(x, p.y + (size.y - is) * 0.5f), is, ink);
     dl->AddText(ImVec2(x + is + gap, p.y + (size.y - ts.y) * 0.5f), ink, lab.c_str());
     if (g_style.title) ImGui::PopFont();
