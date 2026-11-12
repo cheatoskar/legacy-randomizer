@@ -121,9 +121,29 @@ public:
         return HOST_HAS(hotkey_text) ? s(g_api->hotkey_text(g_self, handle)) : "";
     }
 
+    // ABI minor 4: menu / page size and scale. Older hosts (or a short struct): nullptr.
+    static const HorizonUiMetrics* metrics() {
+        if (!g_api || g_api->abi_minor < 4 || !HOST_HAS(ui_metrics)) return nullptr;
+        const HorizonUiMetrics* m = g_api->ui_metrics();
+        if (!m || m->size < offsetof(HorizonUiMetrics, page_h) + sizeof(m->page_h)) return nullptr;
+        return m;
+    }
+    bool uiMetrics(lr::UiMetrics* out) override {
+        const HorizonUiMetrics* m = metrics();
+        if (!m) return false;
+        out->scale = m->scale;
+        out->contentScale = m->content_scale;
+        out->pageW = m->page_w;
+        out->pageH = m->page_h;
+        return true;
+    }
+
     lr::UiStyle style() override {
         lr::UiStyle u;
         const HorizonStyle* hs = HOST_HAS(style) ? g_api->style() : nullptr;
+        const HorizonUiMetrics* m = metrics();
+        const bool metricsScale = m && m->scale > 0;
+        if (metricsScale) u.scale = m->scale;
         if (!hs || hs->size < offsetof(HorizonStyle, font_mono) + sizeof(hs->font_mono)) return u;
         u.accent = col(hs->accent);
         u.ok = col(hs->ok);
@@ -136,7 +156,7 @@ public:
         u.body = static_cast<ImFont*>(hs->font_body);
         u.title = static_cast<ImFont*>(hs->font_title);
         u.mono = static_cast<ImFont*>(hs->font_mono);
-        u.scale = hs->scale > 0 ? hs->scale : 1.0f;
+        if (!metricsScale && hs->scale > 0) u.scale = hs->scale;  // hosts before ABI minor 4
         return u;
     }
 

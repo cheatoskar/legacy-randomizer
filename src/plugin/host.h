@@ -60,6 +60,13 @@ struct UiStyle {
     float scale = 1.0f;
 };
 
+// Sizes from the host (Horizon ABI minor 4, ui_metrics). Pixels; 0 = not known.
+struct UiMetrics {
+    float scale = 0;         // = UiStyle::scale (screen height / 1080 x content scale)
+    float contentScale = 0;  // the player's content scale, 0.8 .. 1.25
+    float pageW = 0, pageH = 0;  // room for the plugin's page in the container that calls drawMenu (docked or popped out)
+};
+
 class Host {
 public:
     virtual ~Host() = default;
@@ -93,6 +100,8 @@ public:
     virtual std::string hotkeyText(int handle) = 0;
 
     virtual UiStyle style() = 0;
+    // false on hosts without ui_metrics (Horizon ABI minor < 4): then the plugin uses the ImGui region only
+    virtual bool uiMetrics(UiMetrics* out) = 0;
     virtual double nowMs() = 0;  // monotonic clock
 
     // --- not in Horizon ABI 1.0 (see docs/plugin.md, "What the host must add") ---

@@ -5,7 +5,8 @@
 //   ui_preview.exe                          interactive window: F8 menu, "Fake game" panel, Ctrl+F9/F10/F11
 //   ui_preview.exe --shots <dir>            renders the pages to PNG (1920x1080) and exits (few live TMX requests)
 //   ui_preview.exe --check-stop             Stop while downloading, loading and racing (live TMX), exit code 0 = ok
-//   options: --game eswc|sunrise|original|tmnf|tmuf (default eswc), --data <dir> (plugin data folder)
+//   options: --game eswc|sunrise|original|tmnf|tmuf (default eswc), --data <dir> (plugin data folder),
+//            --no-metrics (a host before ABI minor 4: no ui_metrics)
 //
 // The ImGui style here is TM Vibrant Shaders' (src/overlay.cpp), standing in for the Horizon host's style.
 #include <cstdio>
@@ -237,6 +238,17 @@ public:
         return h >= 1 && h <= static_cast<int>(hotkeys_.size()) ? hotkeys_[h - 1].key : std::string();
     }
     UiStyle style() override { return style_; }
+    // like a Horizon host with ABI minor 4 (--no-metrics: an older host)
+    bool metrics_ = true;
+    float pageW_ = 0, pageH_ = 0;
+    bool uiMetrics(UiMetrics* out) override {
+        if (!metrics_) return false;
+        out->scale = style_.scale;
+        out->contentScale = 1.0f;
+        out->pageW = pageW_;
+        out->pageH = pageH_;
+        return true;
+    }
     double nowMs() override {
         LARGE_INTEGER c;
         QueryPerformanceCounter(&c);
@@ -507,6 +519,8 @@ void drawShell(FakeHost& host, Plugin& plugin) {
     ImGui::SetNextWindowSize(size, ImGuiCond_Appearing);
     if (ImGui::Begin("Horizon (preview host)  >  Legacy Randomizer", &host.menuOpen_, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
         ImGui::BeginChild("##plugin_legacy-randomizer");
+        host.pageW_ = ImGui::GetContentRegionAvail().x;  // what the host reports as page_w, set right before DrawMenu
+        host.pageH_ = ImGui::GetContentRegionAvail().y;
         plugin.drawMenu();
         ImGui::EndChild();
     }
@@ -836,10 +850,11 @@ int runStopChecks(App& app) {
 int main(int argc, char** argv) {
     std::string shotsDir, data;
     HostGame game = HostGame::Eswc;
-    bool checkStop = false;
+    bool checkStop = false, noMetrics = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--shots") && i + 1 < argc) shotsDir = argv[++i];
         else if (!std::strcmp(argv[i], "--check-stop")) checkStop = true;
+        else if (!std::strcmp(argv[i], "--no-metrics")) noMetrics = true;
         else if (!std::strcmp(argv[i], "--data") && i + 1 < argc) data = argv[++i];
         else if (!std::strcmp(argv[i], "--game") && i + 1 < argc) {
             std::string g = argv[++i];
@@ -892,6 +907,7 @@ int main(int argc, char** argv) {
     FakeHost host(data, game);
     host.style_ = applyHostStyle(1.0f);
     host.dev_ = g_dev;
+    host.metrics_ = !noMetrics;
     g_host = &host;
     ImGui_ImplWin32_Init(g_hwnd);
     ImGui_ImplDX9_Init(g_dev);

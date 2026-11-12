@@ -1,14 +1,17 @@
 # Legacy Randomizer as a Horizon plugin
 
 `dist\legacy_randomizer_plugin.dll` + `dist\plugin.json` (copied from `src\plugin\plugin.json` by `build.cmd`) form the
-Horizon Host plugin `legacy-randomizer`, version 0.3.0. Install both into
+Horizon Client plugin `legacy-randomizer`, version 0.3.0. Install both into
 `<game>\horizon\plugins\legacy-randomizer\`. All paths come from the host (data folder, game folder, user folder).
+
+`plugin.json` `"ui"`: the size of the page when it is popped out (logical px at scale 1.0): opens at `pref_w` × `pref_h`
+(860 × 600), never below `min_w` × `min_h` (520 × 360). The page lays itself out for any width (see *Narrow layout*).
 
 ## Pins
 
 | What | Version |
 |---|---|
-| Plugin ABI | `src/plugin/horizon/horizon_plugin.h` + `horizon_imgui.h`, copied verbatim from `horizon-host` commit **5f24d88** (ABI 1, minor 1). Update = copy both files again, then fix `src/plugin/host_horizon.cpp` only. |
+| Plugin ABI | `src/plugin/horizon/horizon_plugin.h` + `horizon_imgui.h`, copied verbatim from `horizon-host` commit **5ca1854** (Horizon Client 0.3.0-rc.1; ABI 1, minor 4). Update = copy both files again, then fix `src/plugin/host_horizon.cpp` only. Of minor 2–4 the plugin uses only `ui_metrics` (minor 4: scale and `page_w`), and only when `host->abi_minor >= 4`; on older hosts (minor 1) everything works as before. |
 | TMX site logos | `assets/sites/<host>.png`, 64 px, taken from TMX-Downloader 2.1 (`icons/sites`), originally the site-switch logos at `account.mania.exchange/img/logos/` (TMNF, TMU, TMN, TMS, TMO). Origin per file in `assets/sites/SOURCES.md`. They belong to Nadeo/Ubisoft and ManiaExchange and only mark which exchange the plugin uses. Embedded in the DLL as byte arrays (`src/plugin/site_logos.inc`, regenerate with `python assets/make_site_logos.py`), decoded with WIC at init, textures via `create_texture_rgba`. Nothing is fetched at runtime. |
 | Dear ImGui | **1.91.5** (`IMGUI_VERSION_NUM 19150`), `third_party/imgui` (MIT, `LICENSE.txt`), the same copy as horizon-host. Default `imconfig.h`. `HorizonPlugin_Init` returns 2 if the host reports another version. `ImTextureID` is `ImU64`. |
 
