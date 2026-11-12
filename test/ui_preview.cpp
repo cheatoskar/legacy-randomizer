@@ -6,9 +6,12 @@
 //   ui_preview.exe --shots <dir>            renders the pages to PNG (1920x1080) and exits (few live TMX requests)
 //   ui_preview.exe --check-stop             Stop while downloading, loading and racing (live TMX), exit code 0 = ok
 //   options: --game eswc|sunrise|original|tmnf|tmuf (default eswc), --data <dir> (plugin data folder),
-//            --no-metrics (a host before ABI minor 4: no ui_metrics)
+//            --no-metrics (a host before ABI minor 4: no ui_metrics),
+//            --size WxH (the page in a window of that size, like a popped-out page; menu shots are cropped to it,
+//            plus the live Run page, the Stop confirm and About), --quick (with --shots: the pages only, no run)
 //
 // The ImGui style here is TM Vibrant Shaders' (src/overlay.cpp), standing in for the Horizon host's style.
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
@@ -22,6 +25,7 @@
 #include <wincodec.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"  // closing the Stop confirm between shots
 #include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
 
@@ -508,16 +512,24 @@ void drawBackdrop(bool dim) {
     if (dim) dl->AddRectFilled(ImVec2(0, 0), sz, IM_COL32(8, 10, 16, 150));
 }
 
+// --size WxH: the shell window's size (a popped-out page); 0 = the docked default 1180x900
+float g_shellW = 0, g_shellH = 0;
+ImVec2 g_shellMin, g_shellMax;  // last drawn shell window, for cropped shots
+
 // The host's menu shell, reduced to one page: the plugin draws inside the child.
 void drawShell(FakeHost& host, Plugin& plugin) {
     if (!host.menuOpen_) return;
     ImVec2 ds = ImGui::GetIO().DisplaySize;
     float sc = host.style_.scale;
     ImVec2 size(1180 * sc, 900 * sc);
+    if (g_shellW > 0) size = ImVec2(g_shellW, g_shellH);
     if (size.y > ds.y - 40) size.y = ds.y - 40;
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(size, ImGuiCond_Appearing);
-    if (ImGui::Begin("Horizon (preview host)  >  Legacy Randomizer", &host.menuOpen_, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
+    ImGui::SetNextWindowSize(size, g_shellW > 0 ? ImGuiCond_Always : ImGuiCond_Appearing);
+    const char* title = g_shellW > 0 ? "Legacy Randomizer" : "Horizon (preview host)  >  Legacy Randomizer";
+    if (ImGui::Begin(title, &host.menuOpen_, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
+        g_shellMin = ImGui::GetWindowPos();
+        g_shellMax = ImVec2(g_shellMin.x + ImGui::GetWindowSize().x, g_shellMin.y + ImGui::GetWindowSize().y);
         ImGui::BeginChild("##plugin_legacy-randomizer");
         host.pageW_ = ImGui::GetContentRegionAvail().x;  // what the host reports as page_w, set right before DrawMenu
         host.pageH_ = ImGui::GetContentRegionAvail().y;
@@ -574,6 +586,9 @@ void drawFakeGamePanel(FakeHost& host, Plugin& plugin) {
 
 // ------------------------------------------------------------------ frame + capture
 
+float g_wheel = 0;  // a mouse-wheel step for the next frame (shots)
+ImVec2 g_wheelAt;
+
 struct App {
     FakeHost* host;
     Plugin* plugin;
@@ -589,6 +604,14 @@ struct App {
         host->pumpGame();
         ImGui_ImplDX9_NewFrame();
         ImGui_ImplWin32_NewFrame();
+        if (g_wheel != 0) {
+            // shots: scroll the page under the given point (then the mouse leaves again)
+            ImGui::GetIO().AddMousePosEvent(g_wheelAt.x, g_wheelAt.y);
+            ImGui::GetIO().AddMouseWheelEvent(0, g_wheel);
+            g_wheel = 0;
+        } else if (g_shots) {
+            ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        }
         if (g_shots) ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(g_pp.BackBufferWidth), static_cast<float>(g_pp.BackBufferHeight));
         ImGui::NewFrame();
         drawBackdrop(host->menuOpen_);
@@ -635,7 +658,8 @@ struct App {
     }
 };
 
-bool savePng(const std::wstring& path) {
+// crop: the part of the frame to save (x0, y0, x1, y1), nullptr = all
+bool savePng(const std::wstring& path, const RECT* crop = nullptr) {
     IDirect3DSurface9* rt = nullptr;
     IDirect3DSurface9* sys = nullptr;
     if (FAILED(g_dev->GetRenderTarget(0, &rt))) return false;
@@ -643,17 +667,26 @@ bool savePng(const std::wstring& path) {
     rt->GetDesc(&d);
     bool ok = SUCCEEDED(g_dev->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &sys, nullptr)) &&
               SUCCEEDED(g_dev->GetRenderTargetData(rt, sys));
+    RECT r = {0, 0, static_cast<LONG>(d.Width), static_cast<LONG>(d.Height)};
+    if (crop) {
+        r.left = std::max<LONG>(0, crop->left);
+        r.top = std::max<LONG>(0, crop->top);
+        r.right = std::min<LONG>(static_cast<LONG>(d.Width), crop->right);
+        r.bottom = std::min<LONG>(static_cast<LONG>(d.Height), crop->bottom);
+        if (r.right <= r.left || r.bottom <= r.top) r = {0, 0, static_cast<LONG>(d.Width), static_cast<LONG>(d.Height)};
+    }
+    const UINT outW = static_cast<UINT>(r.right - r.left), outH = static_cast<UINT>(r.bottom - r.top);
     std::vector<unsigned char> bgr;
-    UINT stride = d.Width * 3;
+    UINT stride = outW * 3;
     if (ok) {
         D3DLOCKED_RECT lr;
         ok = SUCCEEDED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY));
         if (ok) {
-            bgr.resize(static_cast<size_t>(stride) * d.Height);
-            for (UINT y = 0; y < d.Height; ++y) {
-                const unsigned char* s = static_cast<const unsigned char*>(lr.pBits) + static_cast<size_t>(y) * lr.Pitch;
+            bgr.resize(static_cast<size_t>(stride) * outH);
+            for (UINT y = 0; y < outH; ++y) {
+                const unsigned char* s = static_cast<const unsigned char*>(lr.pBits) + static_cast<size_t>(y + r.top) * lr.Pitch + r.left * 4;
                 unsigned char* o = bgr.data() + static_cast<size_t>(y) * stride;
-                for (UINT x = 0; x < d.Width; ++x) {
+                for (UINT x = 0; x < outW; ++x) {
                     o[x * 3] = s[x * 4];
                     o[x * 3 + 1] = s[x * 4 + 1];
                     o[x * 3 + 2] = s[x * 4 + 2];
@@ -662,6 +695,8 @@ bool savePng(const std::wstring& path) {
             sys->UnlockRect();
         }
     }
+    d.Width = outW;
+    d.Height = outH;
     if (sys) sys->Release();
     rt->Release();
     if (!ok) return false;
@@ -692,11 +727,15 @@ bool savePng(const std::wstring& path) {
 }
 
 int g_shotFails = 0;
+bool g_quick = false;  // --quick: pages only, no run
 
 void shot(App& app, const std::string& dir, const char* name) {
     app.frames(8);
     std::string path = dir + name;
-    bool ok = savePng(toWide(path));
+    // --size: the menu shots show the window only (with a small margin)
+    RECT crop = {static_cast<LONG>(g_shellMin.x) - 12, static_cast<LONG>(g_shellMin.y) - 12, static_cast<LONG>(g_shellMax.x) + 12,
+                 static_cast<LONG>(g_shellMax.y) + 12};
+    bool ok = savePng(toWide(path), g_shellW > 0 && app.host->menuOpen_ ? &crop : nullptr);
     std::printf("%s %s\n", ok ? "wrote" : "FAILED", path.c_str());
     if (!ok) ++g_shotFails;
 }
@@ -728,6 +767,40 @@ int runShots(App& app, std::string dir) {
     plugin.settings().layoutEdit = true;
     shot(app, dir, "04-layout-editor.png");
     plugin.settings().layoutEdit = false;
+    if (g_quick) {
+        // --quick: the pages without a run (no TMX requests), also with a fake TMNF host
+        if (g_shellW > 0) {
+            // the Advanced rows open, scrolled to the end of the page
+            plugin.setAdvancedOpen(true);
+            auto scrolled = [&](const char* page, const char* name) {
+                panels.select(page);
+                app.frames(3);
+                for (int i = 0; i < 6; ++i) {
+                    g_wheelAt = ImVec2(g_shellMax.x - 60, (g_shellMin.y + g_shellMax.y) * 0.5f);
+                    g_wheel = -20;
+                    app.frames(2);
+                }
+                shot(app, dir, name);
+            };
+            scrolled("filters", "02b-filters-advanced.png");
+            scrolled("rules", "03b-rules-advanced.png");
+            scrolled("layout", "04b-layout-end.png");
+            plugin.setAdvancedOpen(false);
+        }
+        panels.select("history");
+        shot(app, dir, "08-history.png");
+        panels.select("about");
+        shot(app, dir, "11-about.png");
+        host.game_ = HostGame::Tmnf;
+        plugin.settings().foreverSource = 2;
+        plugin.settings().atMinMs = 45000;
+        plugin.settings().atMaxMs = 12 * 60000 + 30000;
+        panels.select("filters");
+        shot(app, dir, "09-filters-forever.png");
+        panels.select("run");
+        shot(app, dir, "10-start-forever.png");
+        return g_shotFails ? 1 : 0;
+    }
     panels.select("run");
     app.frames(2);
     host.menuOpen_ = false;
@@ -771,6 +844,17 @@ int runShots(App& app, std::string dir) {
     shot(app, dir, "06-hud-compact.png");
     panels.applySplitPreset();
     app.frames(2);
+    if (g_shellW > 0) {
+        // narrow checks only: the run page during a run and the Stop confirm
+        host.menuOpen_ = true;
+        panels.select("run");
+        shot(app, dir, "12-run-live.png");
+        plugin.requestStop();
+        shot(app, dir, "13-stop-confirm.png");
+        ImGui::GetCurrentContext()->OpenPopupStack.resize(0);  // "Keep playing"
+        app.frames(1);
+        host.menuOpen_ = false;
+    }
     // gold skip, end the run
     run.goldSkip();
     app.frames(4);
@@ -782,6 +866,10 @@ int runShots(App& app, std::string dir) {
     panels.select("history");
     plugin.selectHistoryRun(0);
     shot(app, dir, "08-history.png");
+    if (g_shellW > 0) {
+        panels.select("about");
+        shot(app, dir, "11-about.png");
+    }
     // Forever: a fake TMNF host, maps from both exchanges, a typed maximum beyond the slider's 10:00
     host.game_ = HostGame::Tmnf;
     plugin.settings().foreverSource = 2;
@@ -855,6 +943,11 @@ int main(int argc, char** argv) {
         if (!std::strcmp(argv[i], "--shots") && i + 1 < argc) shotsDir = argv[++i];
         else if (!std::strcmp(argv[i], "--check-stop")) checkStop = true;
         else if (!std::strcmp(argv[i], "--no-metrics")) noMetrics = true;
+        else if (!std::strcmp(argv[i], "--quick")) g_quick = true;
+        else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) {
+            int w = 0, h = 0;
+            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2 && w >= 200 && h >= 150) g_shellW = static_cast<float>(w), g_shellH = static_cast<float>(h);
+        }
         else if (!std::strcmp(argv[i], "--data") && i + 1 < argc) data = argv[++i];
         else if (!std::strcmp(argv[i], "--game") && i + 1 < argc) {
             std::string g = argv[++i];
