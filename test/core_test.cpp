@@ -597,7 +597,19 @@ static void testDurations() {
 
 int main(int argc, char** argv) {
     bool live = false;
-    fs::path maps = R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Challenges\Downloaded\_NostalgicCompletionist)";
+    // LR_TEST_ESWC_DIR: an ESWC game folder (with GameData\) for the tests on real maps and replays
+    fs::path eswc;
+    {
+        wchar_t* v = nullptr;
+        size_t n = 0;
+        if (_wdupenv_s(&v, &n, L"LR_TEST_ESWC_DIR") == 0 && v) {
+            if (*v) eswc = v;
+            free(v);
+        }
+    }
+    fs::path maps;
+    if (!eswc.empty()) maps = eswc / "GameData" / "Tracks" / "Challenges" / "Downloaded" / "_NostalgicCompletionist";
+    else std::printf("note: LR_TEST_ESWC_DIR is not set, the tests on the game's own maps and autosaves are skipped\n");
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--live") == 0) live = true;
         else if (std::strcmp(argv[i], "--maps") == 0 && i + 1 < argc) maps = argv[++i];
@@ -609,7 +621,8 @@ int main(int argc, char** argv) {
     testGoals();
     testDurations();
     {
-        std::vector<fs::path> replayDirs = {R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Replays\Autosaves)"};
+        std::vector<fs::path> replayDirs;
+        if (!eswc.empty()) replayDirs.push_back(eswc / "GameData" / "Tracks" / "Replays" / "Autosaves");
         wchar_t* docs = nullptr;
         size_t n = 0;
         if (_wdupenv_s(&docs, &n, L"USERPROFILE") == 0 && docs) {

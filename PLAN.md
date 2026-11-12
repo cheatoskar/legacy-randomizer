@@ -6,15 +6,15 @@ Stand 2026-11-11. Status: noch nichts gebaut.
 
 ## Was schon da ist
 
-- **eswc-autosave** (`C:\Users\osaro\Downloads\eswc-autosave`, MIT): Prüfung der Exe, Ziel-Hook, Replay speichern mit der Speicherfunktion des Spiels, WinINet mit Online-Fix, Log, Loader-Muster (4-KB-`dinput8.dll` lädt die eigentliche DLL).
-- **Ghidra-Projekt für ESWC**: liegt nur im Temp-Ordner einer alten Sitzung (`%LOCALAPPDATA%\Temp\claude\…\3af10730-…\scratchpad\re-eswc`, mit `notes.txt` und Skripten). **Als Erstes nach `C:\Users\osaro\tools\tm-re\eswc\` umziehen**, sonst ist es beim nächsten Temp-Aufräumen weg. Bleibt privat, kommt in kein öffentliches Repo.
-- **Ghidra** 12.1.2 unter `C:\Users\osaro\tools\`. Ohne Oberfläche per `analyzeHeadless` und eigenen Skripten, so wie bei ESWC.
+- **eswc-autosave** (lokaler Checkout von eswc-autosave, MIT): Prüfung der Exe, Ziel-Hook, Replay speichern mit der Speicherfunktion des Spiels, WinINet mit Online-Fix, Log, Loader-Muster (4-KB-`dinput8.dll` lädt die eigentliche DLL).
+- **Analyse-Notizen zu ESWC**: liegen privat und lokal, nicht in diesem Repo, und kommen in kein öffentliches Repo.
+- **Ghidra** 12.1.2, lokal installiert. Ohne Oberfläche per `analyzeHeadless` und eigenen Skripten, so wie bei ESWC.
 - **TMX**: `nations.tm-exchange.com` hat dieselbe API wie tmnf.exchange (unsere Randomizer-Presets nutzen sie schon). Ob `original.` und `sunrise.tm-exchange.com` gleich funktionieren, wird in Schritt 0 geprüft.
 
 ## Schritte
 
 ### 0. Vorbereitung (Agent ca. 30 Min, du: Spiele installieren)
-- Ghidra-Projekt ESWC umziehen (siehe oben).
+- Analyse-Notizen zu ESWC an einem festen privaten Ort sichern (siehe oben).
 - Neues privates Repo `legacy-randomizer`, Aufbau wie eswc-autosave (`build.cmd`, MSVC x86, `/W4 /WX`).
 - TMX-API für Original und Sunrise prüfen: zufällige Map, Filter, Download.
 - **Du:** TM Original und TM Sunrise installieren. Vorher klären, welche Version die Szene spielt (Sunrise oder Sunrise eXtreme, welcher Patch, Original oder Original Unlimiter?). Der Mod wird wie beim Autosave fest an genau eine Exe gebunden (SHA-256).
