@@ -289,7 +289,20 @@ void RunController::pump() {
         if (!pending_) return;  // the fetch status is shown by the UI
         if (gs == GameState::MainMenu) tryPlayNext();
         else if (gs == GameState::SoloRace || gs == GameState::EndRace) leaveMap();
-        else notice_ = "Waiting for the main menu";
+        else {
+            // Say why we wait: the host's game state decides (a race reported as Editor waits here forever)
+            switch (gs) {
+            case GameState::Editor: notice_ = "Leave the editor"; break;
+            case GameState::Replay: notice_ = "Leave the replay"; break;
+            case GameState::Loading: notice_ = "Game loading"; break;
+            default: notice_ = "Waiting for the main menu"; break;
+            }
+            if (waitLoggedState_ != static_cast<int>(gs)) {
+                waitLoggedState_ = static_cast<int>(gs);
+                host_.log(LogInfo, "waiting to start a map: host game state " + std::to_string(static_cast<int>(gs)) +
+                                       " (needs main menu, solo race or end screen)");
+            }
+        }
         return;
     case Phase::Loading: {
         double age = now - loadSentAt_;
@@ -354,6 +367,7 @@ void RunController::tryPlayNext() {
         switch (r) {
         case HostResult::Ok:
             phase_ = Phase::Loading;
+            waitLoggedState_ = -1;
             loadSentAt_ = now;
             loadedUid_.clear();
             error_.clear();

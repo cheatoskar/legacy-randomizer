@@ -126,6 +126,7 @@ private:
     std::string loadedUid_;
     double lastTick_ = 0, advanceAt_ = 0, loadSentAt_ = 0, leaveSentAt_ = 0, retryAt_ = 0, goalAt_ = 0;
     double tickCarry_ = 0;
+    int waitLoggedState_ = -1;  // game state last logged while waiting to start a map (logged once per state)
     double mapLoadedAt_ = 0;  // MAP_LOADED of the pending map (fallback when RACE_START never comes)
     int loadFailures_ = 0;
     std::string notice_, error_;
