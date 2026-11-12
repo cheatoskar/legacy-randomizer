@@ -43,10 +43,10 @@ Delete the folder horizon\plugins\legacy-randomizer. To remove the whole Horizon
 
 The mod asks the TMX API for one map at a time. Please do not start many runs in a loop and do not use it to download maps in bulk.
 
-## Credits
+## Acknowledgements
 
-- Maps and screenshots: TM Exchange (tm-exchange.com)
-- The RMC idea: Flink
-- Rules modelled after BigBang1112's RandomizerTMF (no code taken from it)
+- Flink: the idea of the Random Map Challenge
+- BigBang1112: RandomizerTMF (https://github.com/BigBang1112/randomizer-tmf) is the model for the rules and filters; no code was taken from it
+- TM Exchange (tm-exchange.com): the maps, screenshots and the API
 - Dear ImGui by Omar Cornut (MIT), see THIRD-PARTY.txt
 - Legacy Randomizer is MIT licensed, see LICENSE.txt

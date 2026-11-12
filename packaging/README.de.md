@@ -43,10 +43,10 @@ Den Ordner horizon\plugins\legacy-randomizer löschen. Den ganzen Horizon Client
 
 Die Mod fragt die TMX-API immer nur nach einer Strecke auf einmal. Bitte keine Dauerschleifen mit vielen Runs starten und die Mod nicht zum Massen-Download von Strecken benutzen.
 
-## Dank
+## Danksagung
 
-- Strecken und Screenshots: TM Exchange (tm-exchange.com)
-- Die RMC-Idee: Flink
-- Regeln nach dem Vorbild von BigBang1112s RandomizerTMF (kein Code daraus übernommen)
+- Flink: die Idee der Random Map Challenge
+- BigBang1112: RandomizerTMF (https://github.com/BigBang1112/randomizer-tmf) ist das Vorbild für Regeln und Filter; kein Code daraus übernommen
+- TM Exchange (tm-exchange.com): die Strecken, Screenshots und die API
 - Dear ImGui von Omar Cornut (MIT), siehe THIRD-PARTY.txt
 - Legacy Randomizer steht unter der MIT-Lizenz, siehe LICENSE.txt
