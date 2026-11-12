@@ -2,13 +2,13 @@
 
 I made a Random Map Challenge for old TrackMania games that runs inside the game. Press Start, get a random map from TM Exchange, reach the goal medal, next map. Challenge, Survival and Free play modes, filters, a HUD you can move around, run history.
 
-Works with TrackMania Nations ESWC (unofficial 1.80 exe) and TrackMania Sunrise (Win10 repack), solo only. It is a plugin for the Horizon Host.
+Works with TrackMania Nations ESWC (unofficial 1.80 exe) and TrackMania Sunrise (Win10 repack), solo only. It is a plugin for the Horizon Client.
 
 ## Downloads
 
-- `LegacyRandomizer-{VERSION}-ESWC-with-Horizon-Host.zip` - host {HOSTVERSION} and the plugin for ESWC
-- `LegacyRandomizer-{VERSION}-Sunrise-with-Horizon-Host.zip` - host {HOSTVERSION} and the plugin for Sunrise
-- `LegacyRandomizer-{VERSION}-plugin.zip` - only the plugin, if you already have the Horizon Host
+- `LegacyRandomizer-{VERSION}-ESWC-with-Horizon-Client.zip` - Horizon Client {HOSTVERSION} and the plugin for ESWC
+- `LegacyRandomizer-{VERSION}-Sunrise-with-Horizon-Client.zip` - Horizon Client {HOSTVERSION} and the plugin for Sunrise
+- `LegacyRandomizer-{VERSION}-plugin.zip` - only the plugin, if you already have the Horizon Client
 - `SHA256SUMS.txt`
 
 Unzip into the game folder. The bundles need a double-click on Horizon-Install.cmd afterwards (an existing dinput8.dll is kept as dinput8.chain.dll). Menu key is Insert. More in the README inside the zip.
@@ -30,7 +30,7 @@ Maps and screenshots come from TMX. The mod asks for one map at a time, please k
 Everything goes into `release\{VERSION}\`. If the public host version differs from the default files, pass them in:
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1 -EswcHostZip <path\Horizon-Host-X.Y.Z-ESWC.zip> -SunriseHostZip <path\Horizon-Host-X.Y.Z-Sunrise.zip>
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1 -EswcHostZip <path\Horizon-Client-X.Y.Z-ESWC.zip> -SunriseHostZip <path\Horizon-Client-X.Y.Z-Sunrise.zip>
 ```
 
-Optional: `-Version` (default: from `src\plugin\plugin.json`), `-HostVersion` (default: from the host zip file name). Without parameters the newest `Horizon-Host-*-ESWC.zip` and `-Sunrise.zip` from `C:\Users\osaro\Downloads\horizon-host\dist\release` are used.
+Optional: `-Version` (default: from `src\plugin\plugin.json`), `-HostVersion` (default: from the host zip file name), `-HostReleaseDir`. Without zip parameters the newest `Horizon-Client-*-ESWC.zip` and `-Sunrise.zip` (older releases: `Horizon-Host-*`) from the host release folder are used: `-HostReleaseDir`, else the environment variable `HORIZON_RELEASE_DIR`, else `..\horizon-host\dist\release` next to this repo.

@@ -1,6 +1,6 @@
 # Legacy Randomizer {VERSION}
 
-A Random Map Challenge (RMC) for old TrackMania games, inside the game. Press Start and the mod loads a random map from TM Exchange, you try to reach the goal medal, then the next map comes. It is a plugin for the Horizon Host.
+A Random Map Challenge (RMC) for old TrackMania games, inside the game. Press Start and the mod loads a random map from TM Exchange, you try to reach the goal medal, then the next map comes. It is a plugin for the Horizon Client.
 
 ## Supported games
 
@@ -11,13 +11,13 @@ Solo only. Nothing runs while you are online.
 
 ## Install
 
-The "with Horizon Host" zip contains the host and the plugin:
+The "with Horizon Client" zip contains the Horizon Client and the plugin:
 
 1. Unzip it into the game folder (next to TmNationsESWC.exe or TmSunrise.exe).
 2. Double-click Horizon-Install.cmd. An existing dinput8.dll of another mod becomes dinput8.chain.dll and keeps working.
 3. Start the game and press Insert.
 
-If you already have the Horizon Host, use the "plugin" zip instead: unzip it into the game folder, so that the files land in horizon\plugins\legacy-randomizer\.
+If you already have the Horizon Client, use the "plugin" zip instead: unzip it into the game folder, so that the files land in horizon\plugins\legacy-randomizer\.
 
 ## Keys
 
@@ -37,7 +37,7 @@ If you already have the Horizon Host, use the "plugin" zip instead: unzip it int
 
 ## Uninstall
 
-Delete the folder horizon\plugins\legacy-randomizer. To remove the whole host: run Horizon-Uninstall.cmd, then delete the horizon folder.
+Delete the folder horizon\plugins\legacy-randomizer. To remove the whole Horizon Client: run Horizon-Uninstall.cmd, then delete the horizon folder.
 
 ## Please be kind to TMX
 

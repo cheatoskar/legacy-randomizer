@@ -1,8 +1,12 @@
 # Builds the plugin and produces the release packages in release\<Version>\ (nothing is published).
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1 [-EswcHostZip <zip>] [-SunriseHostZip <zip>] [-Version x.y.z] [-HostVersion x.y.z] [-SkipBuild]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1 [-EswcHostZip <zip>] [-SunriseHostZip <zip>] [-HostReleaseDir <dir>] [-Version x.y.z] [-HostVersion x.y.z] [-SkipBuild]
+# Host zips: Horizon-Client-<version>-ESWC.zip / -Sunrise.zip (older releases: Horizon-Host-*). Without -EswcHostZip /
+# -SunriseHostZip the newest ones in -HostReleaseDir are used; default: $env:HORIZON_RELEASE_DIR, else
+# ..\horizon-host\dist\release next to this repo.
 param(
     [string]$EswcHostZip,
     [string]$SunriseHostZip,
+    [string]$HostReleaseDir,
     [string]$Version,
     [string]$HostVersion,
     [switch]$SkipBuild
@@ -13,19 +17,31 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $Version) { $Version = (Get-Content -Raw (Join-Path $root 'src\plugin\plugin.json') | ConvertFrom-Json).version }
-# Default: the newest Horizon-Host-<version>-ESWC/Sunrise.zip in horizon-host\dist\release
+if (-not $HostReleaseDir) { $HostReleaseDir = $env:HORIZON_RELEASE_DIR }
+if (-not $HostReleaseDir) { $HostReleaseDir = Join-Path (Split-Path -Parent $root) 'horizon-host\dist\release' }
+# "Horizon-Client-0.3.0-rc.1-ESWC.zip" -> 0.3.0-rc.1 (Horizon-Host-* too)
+$hostZipRx = '^Horizon-(?:Client|Host)-(\d+(?:\.\d+)+(?:-[0-9A-Za-z.]+?)?)-(?:ESWC|Sunrise)\.zip$'
+function ZipVersion([string]$name) { if ($name -match $hostZipRx) { $Matches[1] } else { $null } }
+# sort key: the numeric part, then a release above its pre-releases (0.3.0 > 0.3.0-rc.2 > 0.3.0-rc.1)
+function SortKey([string]$v) {
+    $num, $pre = $v -split '-', 2
+    $parts = @($num -split '\.' | ForEach-Object { '{0:D6}' -f [int]$_ })
+    while ($parts.Count -lt 4) { $parts += '000000' }
+    ($parts -join '.') + $(if ($pre) { '-0' + $pre } else { '-1' })
+}
 function Newest([string]$game) {
-    $dir = 'C:\Users\osaro\Downloads\horizon-host\dist\release'
-    $f = Get-ChildItem $dir -Filter "Horizon-Host-*-$game.zip" | Sort-Object { [version]($_.Name -replace '^Horizon-Host-(\d+(\.\d+)+)-.*$', '$1') } | Select-Object -Last 1
-    if (-not $f) { throw "No Horizon-Host-*-$game.zip in $dir" }
+    if (-not (Test-Path $HostReleaseDir)) { throw "Host release folder not found: $HostReleaseDir (pass -HostReleaseDir or set HORIZON_RELEASE_DIR)" }
+    $f = Get-ChildItem $HostReleaseDir -File | Where-Object { $_.Name -like "*-$game.zip" -and (ZipVersion $_.Name) } |
+        Sort-Object { SortKey (ZipVersion $_.Name) }, { $_.Name -like 'Horizon-Client-*' } | Select-Object -Last 1
+    if (-not $f) { throw "No Horizon-Client-*-$game.zip (or Horizon-Host-*) in $HostReleaseDir" }
     $f.FullName
 }
 if (-not $EswcHostZip) { $EswcHostZip = Newest 'ESWC' }
 if (-not $SunriseHostZip) { $SunriseHostZip = Newest 'Sunrise' }
 foreach ($z in @($EswcHostZip, $SunriseHostZip)) { if (-not (Test-Path $z)) { throw "Host zip not found: $z" } }
 if (-not $HostVersion) {
-    if ((Split-Path -Leaf $EswcHostZip) -match 'Host-(\d+(\.\d+)+)') { $HostVersion = $Matches[1] }
-    else { throw 'Cannot read the host version from the zip name; pass -HostVersion' }
+    $HostVersion = ZipVersion (Split-Path -Leaf $EswcHostZip)
+    if (-not $HostVersion) { throw 'Cannot read the host version from the zip name; pass -HostVersion' }
 }
 
 if (-not $SkipBuild) {
@@ -92,7 +108,7 @@ foreach ($b in @(@('ESWC', $EswcHostZip), @('Sunrise', $SunriseHostZip))) {
     foreach ($k in $plugin.Keys) { $e[$k] = $plugin[$k] }
     $e['README.en.md'] = Bytes (Join-Path $out 'README.en.md')
     $e['README.de.md'] = Bytes (Join-Path $out 'README.de.md')
-    $p = Join-Path $out "LegacyRandomizer-$Version-$($b[0])-with-Horizon-Host.zip"
+    $p = Join-Path $out "LegacyRandomizer-$Version-$($b[0])-with-Horizon-Client.zip"
     New-Zip $p $e
     $bundles += $p
 }

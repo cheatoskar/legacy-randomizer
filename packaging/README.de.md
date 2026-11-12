@@ -1,6 +1,6 @@
 # Legacy Randomizer {VERSION}
 
-Eine Random Map Challenge (RMC) für alte TrackMania-Spiele, direkt im Spiel. Du drückst Start, die Mod lädt eine zufällige Strecke von TM Exchange, du versuchst die Ziel-Medaille zu holen, dann kommt die nächste Strecke. Es ist ein Plugin für den Horizon Host.
+Eine Random Map Challenge (RMC) für alte TrackMania-Spiele, direkt im Spiel. Du drückst Start, die Mod lädt eine zufällige Strecke von TM Exchange, du versuchst die Ziel-Medaille zu holen, dann kommt die nächste Strecke. Es ist ein Plugin für den Horizon Client.
 
 ## Unterstützte Spiele
 
@@ -11,13 +11,13 @@ Nur Solo. Online läuft nichts.
 
 ## Installieren
 
-Das Zip "with Horizon Host" enthält den Host und das Plugin:
+Das Zip "with Horizon Client" enthält den Horizon Client und das Plugin:
 
 1. In den Spielordner entpacken (neben TmNationsESWC.exe bzw. TmSunrise.exe).
 2. Horizon-Install.cmd doppelklicken. Eine vorhandene dinput8.dll einer anderen Mod wird zu dinput8.chain.dll und läuft weiter.
 3. Spiel starten und Einfg (Insert) drücken.
 
-Wenn du den Horizon Host schon hast, nimm stattdessen das "plugin"-Zip: in den Spielordner entpacken, die Dateien landen in horizon\plugins\legacy-randomizer\.
+Wenn du den Horizon Client schon hast, nimm stattdessen das "plugin"-Zip: in den Spielordner entpacken, die Dateien landen in horizon\plugins\legacy-randomizer\.
 
 ## Tasten
 
@@ -37,7 +37,7 @@ Wenn du den Horizon Host schon hast, nimm stattdessen das "plugin"-Zip: in den S
 
 ## Entfernen
 
-Den Ordner horizon\plugins\legacy-randomizer löschen. Den ganzen Host entfernst du mit Horizon-Uninstall.cmd, danach den Ordner horizon löschen.
+Den Ordner horizon\plugins\legacy-randomizer löschen. Den ganzen Horizon Client entfernst du mit Horizon-Uninstall.cmd, danach den Ordner horizon löschen.
 
 ## Bitte schonend mit TMX umgehen
 
