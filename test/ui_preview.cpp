@@ -4,7 +4,9 @@
 //
 //   ui_preview.exe                          interactive window: F8 menu, "Fake game" panel, Ctrl+F9/F10/F11
 //   ui_preview.exe --shots <dir>            renders the pages to PNG (1920x1080) and exits (few live TMX requests)
-//   ui_preview.exe --check-stop             Stop while downloading, loading and racing (live TMX), exit code 0 = ok
+//   ui_preview.exe --check-stop             Stop in the middle of a frame while a request hangs (local fake server,
+//                                           timed: Stop and the next Start must take < 16 ms), then while downloading,
+//                                           loading and racing (live TMX); exit code 0 = ok
 //   options: --game eswc|sunrise|original|tmnf|tmuf (default eswc), --data <dir> (plugin data folder),
 //            --no-metrics (a host before ABI minor 4: no ui_metrics),
 //            --size WxH (the page in a window of that size, like a popped-out page; menu shots are cropped to it,
@@ -18,9 +20,12 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include <winsock2.h>
 #include <windows.h>
+#pragma comment(lib, "ws2_32.lib")  // the stalling fake server of --check-stop
 #include <d3d9.h>
 #include <wincodec.h>
 
@@ -588,6 +593,53 @@ void drawFakeGamePanel(FakeHost& host, Plugin& plugin) {
 
 float g_wheel = 0;  // a mouse-wheel step for the next frame (shots)
 ImVec2 g_wheelAt;
+std::function<void()> g_midFrame;  // runs once inside the next frame, after all drawing (checks)
+
+double nowMsQpc() {
+    LARGE_INTEGER c, f;
+    QueryPerformanceCounter(&c);
+    QueryPerformanceFrequency(&f);
+    return static_cast<double>(c.QuadPart) * 1000.0 / static_cast<double>(f.QuadPart);
+}
+
+// A local server that accepts connections and never answers: every request to it hangs until its
+// timeout, like a slow TMX (for the Stop timing check).
+struct StallServer {
+    SOCKET ls = INVALID_SOCKET;
+    int port = 0;
+    std::thread th;
+    std::vector<SOCKET> held;
+    bool start() {
+        WSADATA w;
+        if (WSAStartup(MAKEWORD(2, 2), &w) != 0) return false;
+        ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (ls == INVALID_SOCKET) return false;
+        sockaddr_in a = {};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        a.sin_port = 0;
+        int len = sizeof a;
+        if (bind(ls, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0 || listen(ls, 16) != 0 ||
+            getsockname(ls, reinterpret_cast<sockaddr*>(&a), &len) != 0)
+            return false;
+        port = ntohs(a.sin_port);
+        th = std::thread([this] {
+            for (;;) {
+                SOCKET c = accept(ls, nullptr, nullptr);
+                if (c == INVALID_SOCKET) break;
+                held.push_back(c);  // keep it open, say nothing
+            }
+        });
+        return true;
+    }
+    void stop() {
+        if (ls != INVALID_SOCKET) closesocket(ls);
+        if (th.joinable()) th.join();
+        for (SOCKET c : held) closesocket(c);
+        held.clear();
+        WSACleanup();
+    }
+};
 
 struct App {
     FakeHost* host;
@@ -618,6 +670,12 @@ struct App {
         plugin->drawOverlay();
         drawShell(*host, *plugin);
         if (!g_shots && showPanel) drawFakeGamePanel(*host, *plugin);
+        if (g_midFrame) {
+            // checks: an action in the middle of a frame, like a button click (the HUD has drawn already)
+            std::function<void()> f = std::move(g_midFrame);
+            g_midFrame = nullptr;
+            f();
+        }
         ImGui::EndFrame();
         g_dev->SetRenderState(D3DRS_ZENABLE, FALSE);
         g_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -894,12 +952,29 @@ int runStopChecks(App& app) {
         std::printf("%s %s\n", ok ? "ok  " : "FAIL", what);
         if (!ok) ++fails;
     };
+    // Stop in the middle of a frame (the HUD has drawn the map's thumbnail already), timed
+    auto timedStop = [&](double* callMs, double* frameMs) {
+        double c = 0;
+        g_midFrame = [&] {
+            double t0 = nowMsQpc();
+            run.stop();
+            c = nowMsQpc() - t0;
+        };
+        double f0 = nowMsQpc();
+        App::pumpMessages();
+        app.frame(false);
+        if (frameMs) *frameMs = nowMsQpc() - f0;
+        if (callMs) *callMs = c;
+    };
     auto stopAndCheck = [&](const char* when) {
         size_t before = app.plugin->history().runs().size();
         int plays = host.plays_;
-        run.stop();
+        double callMs = 0, frameMs = 0;
+        timedStop(&callMs, &frameMs);
+        std::printf("     Stop (%s): call %.2f ms, frame %.2f ms\n", when, callMs, frameMs);
         app.frames(2);
         std::string w = std::string(" (") + when + ")";
+        check(callMs < 16.0, ("Stop returns within a frame" + w).c_str());
         check(run.phase() == Phase::Over, ("phase is Over" + w).c_str());
         check(run.lastRun().endedBy == "user", ("ended by the user" + w).c_str());
         check(app.plugin->history().runs().size() == before + 1, ("history entry saved" + w).c_str());
@@ -912,6 +987,39 @@ int runStopChecks(App& app) {
     };
     std::string why;
     host.menuOpen_ = true;
+    // 0. a request that hangs (local server that never answers, 10 s timeout): Stop, the next Start
+    //    (old code: joined the stuck worker) and a second Stop must not wait for it
+    {
+        StallServer srv;
+        if (!srv.start()) { std::printf("cannot start the local fake server\n"); return 1; }
+        setTestEndpoint("127.0.0.1", srv.port);
+        if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+        app.waitUntil([] { return false; }, 500);  // the first request is in flight by now
+        double callMs = 0, frameMs = 0;
+        timedStop(&callMs, &frameMs);
+        std::printf("     Stop (request hanging): call %.2f ms, frame %.2f ms\n", callMs, frameMs);
+        check(callMs < 16.0, "Stop returns within a frame (request hanging)");
+        check(run.phase() == Phase::Over, "phase is Over (request hanging)");
+        run.newRun();
+        double t0 = nowMsQpc();
+        bool ok = run.start(&why);
+        double startMs = nowMsQpc() - t0;
+        std::printf("     next Start: %.2f ms\n", startMs);
+        check(ok && startMs < 16.0, "the next Start does not wait for the stopped worker");
+        app.waitUntil([] { return false; }, 500);
+        timedStop(&callMs, &frameMs);
+        std::printf("     Stop again: call %.2f ms, frame %.2f ms\n", callMs, frameMs);
+        check(callMs < 16.0, "second Stop returns within a frame");
+        run.newRun();
+        // shutdown with stopped workers still in a request: cancelled, so quick
+        t0 = nowMsQpc();
+        run.fetcher().stop();
+        double downMs = nowMsQpc() - t0;
+        std::printf("     joining the stopped workers (shutdown): %.2f ms\n", downMs);
+        check(downMs < 1000.0, "shutdown does not wait for the request timeout");
+        setTestEndpoint("", 0);
+        srv.stop();
+    }
     // 1. while the first map is being fetched (Preparing)
     if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
     app.frames(3);

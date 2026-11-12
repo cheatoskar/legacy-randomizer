@@ -157,6 +157,20 @@ bool History::save(RunRecord& r, std::string* pathOut) {
     return true;
 }
 
+std::string History::add(RunRecord& r) {
+    if (folder_.empty()) return std::string();
+    std::string name = "run-" + fileStampLocal() + ".json";
+    r.file = name;
+    runs_.insert(runs_.begin(), r);
+    return folder_ + name;
+}
+
+bool History::writeRun(const std::string& path, const std::string& json) {
+    size_t slash = path.find_last_of('\\');
+    if (slash != std::string::npos && !ensureDir(path.substr(0, slash + 1))) return false;
+    return writeFileAtomic(path, json);
+}
+
 std::set<long long> History::playedIds(const std::string& site) const {
     std::set<long long> ids;
     for (const RunRecord& r : runs_)

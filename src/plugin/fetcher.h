@@ -2,6 +2,7 @@
 // data folder, header read, thumbnail decoded), so the next map can start without waiting.
 // One worker thread; everything public is thread-safe.
 #pragma once
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -33,33 +34,38 @@ struct PreparedMap {
     bool texTried = false;
 };
 
-class Fetcher {
+// One TMX site to pick from. A run has one, on Forever with "both" two: then a site is picked per map
+// (a coin flip, or with evenSites the site with fewer maps so far).
+struct FetchSource {
+    Site site = Site::TMNF;
+    TmxFilter filter;
+    std::vector<int> environments;    // pick one of these per request (equal distribution); empty: any
+    std::set<long long> exclude;      // TMX ids of this site not to pick (played before, banned, skipped)
+};
+struct FetchJob {
+    std::vector<FetchSource> sources;
+    bool evenSites = false;
+    std::string folder;               // UTF-8, trailing backslash; maps go here
+    ThumbSource thumbs = ThumbSource::Tmx;
+    std::vector<std::string> autosaveDirs;  // "never a map you finished before": replays in these folders
+    std::string autosaveCache;        // cache file for the replay scan ("" none)
+};
+
+// One worker thread for one run. Stopping it cancels its HTTP request (the handles are closed), so it
+// ends within a moment; nobody on the game thread waits for it (see Fetcher).
+class FetchWorker {
 public:
-    // One TMX site to pick from. A run has one, on Forever with "both" two: then a site is picked per map
-    // (a coin flip, or with evenSites the site with fewer maps so far).
-    struct Source {
-        Site site = Site::TMNF;
-        TmxFilter filter;
-        std::vector<int> environments;    // pick one of these per request (equal distribution); empty: any
-        std::set<long long> exclude;      // TMX ids of this site not to pick (played before, banned, skipped)
-    };
-    struct Job {
-        std::vector<Source> sources;
-        bool evenSites = false;
-        std::string folder;               // UTF-8, trailing backslash; maps go here
-        ThumbSource thumbs = ThumbSource::Tmx;
-        std::vector<std::string> autosaveDirs;  // "never a map you finished before": replays in these folders
-        std::string autosaveCache;        // cache file for the replay scan ("" none)
-    };
+    using Source = FetchSource;
+    using Job = FetchJob;
     using LogFn = std::function<void(LogLevel, const std::string&)>;
 
-    explicit Fetcher(LogFn log) : log_(std::move(log)) {}
-    ~Fetcher() { stop(); }
+    explicit FetchWorker(LogFn log) : log_(std::move(log)), cancel_(std::make_shared<HttpCancel>()) {}
+    ~FetchWorker() { stop(); }
 
-    void start(const Job& job);  // (re)starts the worker; it keeps one map ready
-    void requestStop();          // returns at once; the worker ends after its current request
-    void stop();                 // requestStop + join (waits for a running HTTP request, max ~20 s)
-    bool running() const { return thread_.joinable(); }
+    void start(const Job& job);
+    void requestStop();          // returns at once: cancels the running request, the thread ends by itself
+    void stop();                 // requestStop + join (quick: the request is cancelled)
+    bool finished() const { return done_; }  // the thread has ended (join is instant)
 
     std::shared_ptr<PreparedMap> take();  // the ready map or null; the worker starts the next one
     bool hasReady();
@@ -80,6 +86,8 @@ private:
     std::set<std::string> finished_;  // map uids with an autosave replay (worker thread only)
 
     LogFn log_;
+    std::shared_ptr<HttpCancel> cancel_;
+    std::atomic<bool> done_{false};
     std::thread thread_;
     std::mutex mu_;
     std::condition_variable cv_;
@@ -89,6 +97,40 @@ private:
     std::string status_;
     bool lastFailed_ = false;
     int failures_ = 0;
+};
+
+// Keeps the next map ready for the current run. Game-thread object; nothing here blocks the game
+// thread: stopping hands the worker over to a list of stopped ones (their request cancelled), which
+// are joined once they have ended, at the next start, and at shutdown (stop()).
+class Fetcher {
+public:
+    using Source = FetchSource;
+    using Job = FetchJob;
+    using LogFn = FetchWorker::LogFn;
+
+    explicit Fetcher(LogFn log) : log_(std::move(log)) {}
+    ~Fetcher() { stop(); }
+
+    void start(const Job& job);  // a new worker for a new run (a previous one is stopped, not waited for)
+    void requestStop();          // returns at once
+    void stop();                 // stops and joins every worker (shutdown; quick, requests are cancelled)
+    bool running() const { return cur_ != nullptr; }
+
+    std::shared_ptr<PreparedMap> take() { return cur_ ? cur_->take() : nullptr; }
+    bool hasReady() { return cur_ && cur_->hasReady(); }
+    void exclude(Site site, long long id) { if (cur_) cur_->exclude(site, id); }
+    void retryNow() { if (cur_) cur_->retryNow(); }
+    std::string status() { return cur_ ? cur_->status() : std::string(); }
+    bool lastFailed() { return cur_ && cur_->lastFailed(); }
+    int failures() { return cur_ ? cur_->failures() : 0; }
+
+private:
+    void retire();  // current worker -> stopped list
+    void reap();    // join the stopped workers whose thread has ended
+
+    LogFn log_;
+    std::unique_ptr<FetchWorker> cur_;
+    std::vector<std::unique_ptr<FetchWorker>> old_;
 };
 
 } // namespace lr

@@ -14,8 +14,44 @@
 
 namespace lr {
 
+// ------------------------------------------------------------------ Fetcher (game thread)
+
 void Fetcher::start(const Job& job) {
-    stop();
+    retire();
+    reap();
+    cur_.reset(new FetchWorker(log_));
+    cur_->start(job);
+}
+
+void Fetcher::requestStop() {
+    retire();
+    reap();
+}
+
+void Fetcher::stop() {
+    retire();
+    for (auto& w : old_) w->requestStop();  // all cancelled first, then joined
+    old_.clear();                           // ~FetchWorker joins
+}
+
+void Fetcher::retire() {
+    if (!cur_) return;
+    cur_->requestStop();
+    old_.push_back(std::move(cur_));
+}
+
+void Fetcher::reap() {
+    for (size_t i = 0; i < old_.size();) {
+        if (old_[i]->finished()) old_.erase(old_.begin() + static_cast<long>(i));  // join is instant
+        else ++i;
+    }
+}
+
+// ------------------------------------------------------------------ FetchWorker
+
+void FetchWorker::start(const Job& job) {
+    // single use: one worker per run (Fetcher makes a new one), so nothing to stop here
+    if (thread_.joinable()) return;
     {
         std::lock_guard<std::mutex> l(mu_);
         job_ = job;
@@ -31,7 +67,7 @@ void Fetcher::start(const Job& job) {
     thread_ = std::thread([this] { loop(); });
 }
 
-void Fetcher::requestStop() {
+void FetchWorker::requestStop() {
     {
         std::lock_guard<std::mutex> l(mu_);
         stop_ = true;
@@ -39,15 +75,16 @@ void Fetcher::requestStop() {
         if (ready_) deleteFile(ready_->path);
         ready_.reset();
     }
+    cancel_->cancel();  // a blocking HTTP call of the worker returns now
     cv_.notify_all();
 }
 
-void Fetcher::stop() {
+void FetchWorker::stop() {
     requestStop();
     if (thread_.joinable()) thread_.join();
 }
 
-std::shared_ptr<PreparedMap> Fetcher::take() {
+std::shared_ptr<PreparedMap> FetchWorker::take() {
     std::shared_ptr<PreparedMap> m;
     {
         std::lock_guard<std::mutex> l(mu_);
@@ -63,23 +100,23 @@ std::shared_ptr<PreparedMap> Fetcher::take() {
     return m;
 }
 
-bool Fetcher::hasReady() {
+bool FetchWorker::hasReady() {
     std::lock_guard<std::mutex> l(mu_);
     return ready_ != nullptr;
 }
 
-Fetcher::Source* Fetcher::source(Site site) {
+FetchWorker::Source* FetchWorker::source(Site site) {
     for (Source& s : job_.sources)
         if (s.site == site) return &s;
     return nullptr;
 }
 
-void Fetcher::exclude(Site site, long long id) {
+void FetchWorker::exclude(Site site, long long id) {
     std::lock_guard<std::mutex> l(mu_);
     if (Source* s = source(site)) s->exclude.insert(id);
 }
 
-void Fetcher::retryNow() {
+void FetchWorker::retryNow() {
     {
         std::lock_guard<std::mutex> l(mu_);
         wake_ = true;
@@ -87,28 +124,28 @@ void Fetcher::retryNow() {
     cv_.notify_all();
 }
 
-std::string Fetcher::status() {
+std::string FetchWorker::status() {
     std::lock_guard<std::mutex> l(mu_);
     return status_;
 }
 
-bool Fetcher::lastFailed() {
+bool FetchWorker::lastFailed() {
     std::lock_guard<std::mutex> l(mu_);
     return lastFailed_;
 }
 
-int Fetcher::failures() {
+int FetchWorker::failures() {
     std::lock_guard<std::mutex> l(mu_);
     return failures_;
 }
 
-bool Fetcher::excluded(Site site, long long id) {
+bool FetchWorker::excluded(Site site, long long id) {
     std::lock_guard<std::mutex> l(mu_);
     Source* s = source(site);
     return s && s->exclude.count(id) != 0;
 }
 
-void Fetcher::loop() {
+void FetchWorker::loop() {
     HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     {
         Job copy;
@@ -152,9 +189,10 @@ void Fetcher::loop() {
         if (stop_) break;
     }
     if (SUCCEEDED(co)) CoUninitialize();
+    done_ = true;
 }
 
-bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
+bool FetchWorker::fetchOne(PreparedMap& out, std::string& err) {
     static std::mt19937 rng(static_cast<unsigned>(GetTickCount()));
     // the site of this map: the only one, or of two a coin flip / the one with fewer maps so far
     std::vector<Source> order;
@@ -181,6 +219,7 @@ bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
     HttpOptions http;
     http.timeoutMs = 10000;
     http.retries = 1;
+    http.cancel = cancel_;
     int rejected = 0;
     size_t which = 0;  // index into order; the other site is tried when this one fails
     for (int attempt = 0; attempt < 8; ++attempt) {
@@ -268,7 +307,7 @@ namespace lr {
 
 // Map uids of every replay in the Autosaves folders. A cache (file name, size, write time -> uid) keeps
 // later starts fast; only new or changed replays are read (their first 64 KiB).
-void Fetcher::scanAutosaves(const Job& job) {
+void FetchWorker::scanAutosaves(const Job& job) {
     finished_.clear();
     if (job.autosaveDirs.empty()) return;
     {

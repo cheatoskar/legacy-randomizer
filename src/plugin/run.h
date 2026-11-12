@@ -9,8 +9,10 @@
 //    Patch 2.0) ONLY on the end screen. A skip during a Forever run asks the player to quit the map
 //    themselves (Esc > Quit); the next map starts from the menu.
 #pragma once
+#include <atomic>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../core/session.h"
@@ -130,6 +132,14 @@ private:
 
     RunRecord last_;
     std::string lastPath_;
+
+    // Textures of maps let go during a frame: the draw data of that frame may still use them, so they are
+    // released at the next update() (start of the next frame), never mid-frame.
+    std::vector<ImTextureID> deadTex_;
+    void releaseDeadTextures();
+    // the run file is written by a small thread (no file I/O on the game thread when a run ends)
+    std::thread saver_;
+    std::atomic<int> saveState_{0};  // 0 idle/writing, 1 written, 2 failed
 };
 
 const char* phaseName(Phase p);

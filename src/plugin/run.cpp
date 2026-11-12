@@ -46,9 +46,16 @@ RunController::~RunController() { shutdown(); }
 
 void RunController::shutdown() {
     *alive_ = false;
-    fetcher_.stop();
+    fetcher_.stop();  // quick: the workers' requests are cancelled
+    if (saver_.joinable()) saver_.join();
     releaseMap(cur_);
     releaseMap(pending_);
+    releaseDeadTextures();
+}
+
+void RunController::releaseDeadTextures() {
+    for (ImTextureID t : deadTex_) host_.releaseTexture(t);
+    deadTex_.clear();
 }
 
 bool RunController::forever() const { return host_.game() == HostGame::Tmnf || host_.game() == HostGame::Tmuf; }
@@ -145,7 +152,7 @@ std::shared_ptr<PreparedMap> RunController::takeNext() {
 
 void RunController::releaseMap(std::shared_ptr<PreparedMap>& m) {
     if (m && m->tex) {
-        host_.releaseTexture(m->tex);
+        deadTex_.push_back(m->tex);  // released next frame: this frame's draw data may still show it
         m->tex = 0;
     }
     m.reset();
@@ -240,6 +247,13 @@ void RunController::dropPendingMap() {
 // ------------------------------------------------------------------ frame
 
 void RunController::update() {
+    releaseDeadTextures();  // the previous frame is rendered
+    int saved = saveState_.exchange(0);
+    if (saved == 1) host_.log(LogInfo, "run saved: " + lastPath_);
+    else if (saved == 2) {
+        lastPath_.clear();
+        setError("Could not save the run file.");
+    }
     double now = host_.nowMs();
     double dt = now - lastTick_;
     lastTick_ = now;
@@ -499,9 +513,16 @@ void RunController::endRun(const char* by) {
     if (!session_) return;
 
     last_ = snapshot(by);
-    lastPath_.clear();
-    if (history_.save(last_, &lastPath_)) host_.log(LogInfo, "run saved: " + lastPath_);
-    else setError("Could not save the run file.");
+    // listed in History at once, the file written by a small thread (update() reports the outcome)
+    lastPath_ = history_.add(last_);
+    if (saver_.joinable()) saver_.join();  // the previous run's file: long written by now
+    saveState_ = 0;
+    if (lastPath_.empty()) {
+        setError("Could not save the run file.");
+    } else {
+        std::string path = lastPath_, json = runToJson(last_);
+        saver_ = std::thread([this, path, json] { saveState_ = History::writeRun(path, json) ? 1 : 2; });
+    }
     host_.log(LogInfo, std::string("run ended (") + by + "): AT " + std::to_string(last_.authors) + ", gold " +
                            std::to_string(last_.golds) + ", skips " + std::to_string(last_.skips));
 }

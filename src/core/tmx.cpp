@@ -29,27 +29,49 @@ std::string winErr(const char* what, DWORD code) {
     return buf;
 }
 
+std::mutex g_testMu;
+std::string g_testHost;
+int g_testPort = 0;
+
 // One request. verb is "GET" or "HEAD"; redirects are NOT followed (location is returned).
-TmxError httpOnce(const char* host, const std::string& path, const char* verb, int timeoutMs, HttpReply& out) {
+TmxError httpOnce(const char* host, const std::string& path, const char* verb, const HttpOptions& o, HttpReply& out) {
     out = HttpReply();
+    HttpCancel* cancel = o.cancel.get();
+    if (cancel && cancel->cancelled()) return {"cancelled"};
+    std::string testHost;
+    int testPort = 0;
+    {
+        std::lock_guard<std::mutex> l(g_testMu);
+        testHost = g_testHost;
+        testPort = g_testPort;
+    }
     HINTERNET net = InternetOpenA(kUserAgent, INTERNET_OPEN_TYPE_PRECONFIG, nullptr, nullptr, 0);
     if (!net) return {winErr("InternetOpen", GetLastError())};
-    DWORD t = static_cast<DWORD>(timeoutMs);
+    DWORD t = static_cast<DWORD>(o.timeoutMs);
     InternetSetOptionA(net, INTERNET_OPTION_CONNECT_TIMEOUT, &t, sizeof t);
     InternetSetOptionA(net, INTERNET_OPTION_SEND_TIMEOUT, &t, sizeof t);
     InternetSetOptionA(net, INTERNET_OPTION_RECEIVE_TIMEOUT, &t, sizeof t);
 
     TmxError err;
-    HINTERNET con = InternetConnectA(net, host, INTERNET_DEFAULT_HTTPS_PORT, nullptr, nullptr,
-                                     INTERNET_SERVICE_HTTP, 0, 0);
+    const bool test = !testHost.empty();
+    HINTERNET con = InternetConnectA(net, test ? testHost.c_str() : host,
+                                     test ? static_cast<INTERNET_PORT>(testPort) : static_cast<INTERNET_PORT>(INTERNET_DEFAULT_HTTPS_PORT),
+                                     nullptr, nullptr, INTERNET_SERVICE_HTTP, 0, 0);
     if (!con) {
         err.message = std::string("cannot connect to ") + host + ": " + winErr("InternetConnect", GetLastError());
         InternetCloseHandle(net);
         return err;
     }
-    DWORD flags = INTERNET_FLAG_SECURE | INTERNET_FLAG_NO_AUTO_REDIRECT | INTERNET_FLAG_NO_COOKIES |
+    DWORD flags = (test ? 0 : INTERNET_FLAG_SECURE) | INTERNET_FLAG_NO_AUTO_REDIRECT | INTERNET_FLAG_NO_COOKIES |
                   INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD;
     HINTERNET req = HttpOpenRequestA(con, verb, path.c_str(), nullptr, nullptr, nullptr, flags, 0);
+    // from here a cancel() closes the handles and the blocking calls below return with an error
+    if (cancel && !cancel->attach(net, con, req)) {
+        if (req) InternetCloseHandle(req);
+        InternetCloseHandle(con);
+        InternetCloseHandle(net);
+        return {"cancelled"};
+    }
     if (!req) {
         err.message = winErr("HttpOpenRequest", GetLastError());
     } else if (!HttpSendRequestA(req, nullptr, 0, nullptr, 0)) {
@@ -76,6 +98,7 @@ TmxError httpOnce(const char* host, const std::string& path, const char* verb, i
             if (out.body.size() > 64u * 1024 * 1024) { err.message = "response too large"; break; }
         }
     }
+    if (cancel && !cancel->detach()) return {"cancelled"};  // cancel() closed the handles
     if (req) InternetCloseHandle(req);
     InternetCloseHandle(con);
     InternetCloseHandle(net);
@@ -92,7 +115,8 @@ bool retryable(const TmxError& e, const HttpReply& r) {
 TmxError httpRequest(Site s, const std::string& path, const char* verb, const HttpOptions& o, HttpReply& out) {
     TmxError err;
     for (int attempt = 0; attempt <= o.retries; ++attempt) {
-        err = httpOnce(siteHost(s), path, verb, o.timeoutMs, out);
+        err = httpOnce(siteHost(s), path, verb, o, out);
+        if (o.cancel && o.cancel->cancelled()) return {"cancelled"};
         if (!retryable(err, out)) break;
         if (attempt < o.retries) Sleep(500);
     }
@@ -112,6 +136,44 @@ void appendQuery(std::string& q, const std::string& kv) {
 }
 
 } // namespace
+
+void HttpCancel::cancel() {
+    std::lock_guard<std::mutex> l(mu_);
+    if (cancelled_) return;
+    cancelled_ = true;
+    // closing the handles makes a blocking HttpSendRequest / InternetReadFile on the other thread return
+    for (void*& h : h_)
+        if (h) {
+            InternetCloseHandle(static_cast<HINTERNET>(h));
+            h = nullptr;
+        }
+}
+
+bool HttpCancel::cancelled() {
+    std::lock_guard<std::mutex> l(mu_);
+    return cancelled_;
+}
+
+bool HttpCancel::attach(void* net, void* con, void* req) {
+    std::lock_guard<std::mutex> l(mu_);
+    if (cancelled_) return false;
+    h_[0] = req;
+    h_[1] = con;
+    h_[2] = net;
+    return true;
+}
+
+bool HttpCancel::detach() {
+    std::lock_guard<std::mutex> l(mu_);
+    h_[0] = h_[1] = h_[2] = nullptr;
+    return !cancelled_;
+}
+
+void setTestEndpoint(const std::string& host, int port) {
+    std::lock_guard<std::mutex> l(g_testMu);
+    g_testHost = host;
+    g_testPort = port;
+}
 
 const char* siteHost(Site s) {
     switch (s) {

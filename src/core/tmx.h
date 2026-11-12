@@ -8,6 +8,8 @@
 // ignored (always the same first row), so random picks go through /trackrandom and are verified
 // against /api/tracks afterwards.
 #pragma once
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -73,10 +75,31 @@ struct TmxError {
     bool ok() const { return message.empty(); }
 };
 
+// Cancels the requests that carry it, from any thread: cancel() closes their open WinINet handles, so a
+// blocking connect/send/read returns at once; every later request with it fails at once ("cancelled").
+class HttpCancel {
+public:
+    void cancel();
+    bool cancelled();
+    // used by the request (tmx.cpp): register the open handles; false = already cancelled
+    bool attach(void* net, void* con, void* req);
+    // the request is done: true = it closes its handles itself, false = cancel() has closed them
+    bool detach();
+
+private:
+    std::mutex mu_;
+    bool cancelled_ = false;
+    void* h_[3] = {nullptr, nullptr, nullptr};  // req, con, net
+};
+
 struct HttpOptions {
     int timeoutMs = 15000;
     int retries = 1;  // extra attempts after the first
+    std::shared_ptr<HttpCancel> cancel;  // optional
 };
+
+// Tests only: every request goes to host:port over plain HTTP (a local fake server). "" = off.
+void setTestEndpoint(const std::string& host, int port);
 
 // --- pure helpers (no network, unit-tested) ---
 std::string buildRandomPath(const TmxFilter& f);                 // "/trackrandom?..."
