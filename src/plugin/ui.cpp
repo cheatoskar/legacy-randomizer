@@ -149,6 +149,45 @@ void Plugin::ensureTexture(PreparedMap* m) {
     }
 }
 
+// ------------------------------------------------------------------ stop
+
+// One confirm for the Run page and the HUD buttons: a fixed ID scope, so the button in any window opens
+// the same popup, which drawOverlay submits every frame.
+static const ImGuiID kStopScope = 0x4C525354;  // "LRST"
+
+void Plugin::stopButton(ImVec2 size) {
+    if (ImGui::Button("Stop", size)) {
+        // a run with progress asks first; one that has hardly begun just stops
+        const Session* s = run_.session();
+        bool progress = s && (!s->history().empty() || s->elapsedMs() > 60000);
+        if (progress) {
+            ImGui::PushOverrideID(kStopScope);
+            ImGui::OpenPopup("Stop run?");
+            ImGui::PopID();
+        } else {
+            run_.stop();
+        }
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("End the run and save it");
+}
+
+void Plugin::stopPopup() {
+    const float sc = style_.scale;
+    ImGui::PushOverrideID(kStopScope);
+    if (ImGui::BeginPopupModal("Stop run?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        if (!run_.active()) ImGui::CloseCurrentPopup();  // ended by itself meanwhile
+        ImGui::TextColored(style_.muted, "Results are saved.");
+        if (ImGui::Button("Stop", ImVec2(120 * sc, 0))) {
+            run_.stop();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Keep playing", ImVec2(120 * sc, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+}
+
 // ------------------------------------------------------------------ menu shell
 
 void Plugin::drawMenu() {
@@ -256,17 +295,7 @@ void Plugin::pageRun() {
         ImGui::Text("Skips %d", s->skipCount());
         ImGui::SameLine(0, 16 * sc);
         ImGui::TextColored(style_.muted, "%s", phaseName(run_.phase()));
-        if (ImGui::Button("End run")) ImGui::OpenPopup("End run?");
-        if (ImGui::BeginPopupModal("End run?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted("End this run now? It is saved with the maps played so far.");
-            if (ImGui::Button("End run", ImVec2(120 * sc, 0))) {
-                run_.stop();
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Keep playing", ImVec2(120 * sc, 0))) ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
+        stopButton(ImVec2(120 * sc, 0));
         ui::endCard();
         float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
         ImGui::BeginGroup();
@@ -282,7 +311,7 @@ void Plugin::pageRun() {
         panelMedals();
         ui::endCard();
         ui::beginCard("Controls", Icon::Controls);
-        panelControls();
+        panelControls(false);
         ui::endCard();
         ImGui::EndGroup();
         RunRecord snap = run_.snapshot();
@@ -1121,14 +1150,17 @@ void Plugin::panelMedals() {
     }
 }
 
-void Plugin::drawControls(float width) {
+void Plugin::drawControls(float width, bool withStop) {
     const Session* s = run_.session();
     float sp = ImGui::GetStyle().ItemSpacing.x;
     bool showGold = s && s->config().goal == Goal::Author && s->config().allowGoldSkip;
-    float bw = showGold ? (width - sp) * 0.5f : width;
+    // Skip [Gold skip] Stop: Stop as wide as its label, the others share the rest
+    const float stopW = withStop ? ImGui::CalcTextSize("Stop").x + ImGui::GetStyle().FramePadding.x * 2 + 8 * style_.scale : 0.0f;
+    const float rest = withStop ? width - stopW - sp : width;
+    float bw = showGold ? (rest - sp) * 0.5f : rest;
     if (!s || !run_.active()) {
         ImGui::BeginDisabled();
-        ImGui::Button("Skip", ImVec2(bw, 0));
+        ImGui::Button("Skip", ImVec2(width, 0));
         ImGui::EndDisabled();
         return;
     }
@@ -1149,11 +1181,15 @@ void Plugin::drawControls(float width) {
         if (ImGui::Button("Gold skip", ImVec2(bw, 0))) run_.goldSkip();
         ImGui::EndDisabled();
     }
+    if (withStop) {
+        ImGui::SameLine(0, sp);
+        stopButton(ImVec2(stopW, 0));
+    }
 }
 
-void Plugin::panelControls() {
+void Plugin::panelControls(bool withStop) {
     float w = ImGui::GetContentRegionAvail().x;
-    drawControls(w);
+    drawControls(w, withStop);
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
     if (run_.goalJustReached()) {
         Medal md = run_.bestMedal();
@@ -1300,6 +1336,7 @@ void Plugin::drawOverlay() {
     bool menu = host_.menuOpen();
     if (run_.phase() == Phase::Over && !toastDismissed_ && !menu) drawResultsToast();
     panels_.drawWindows(menu, run_.active(), settings_.hudVisible, settings_.layoutEdit);
+    stopPopup();
     panels_.saveIfDirty(host_);
 }
 

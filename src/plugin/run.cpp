@@ -487,8 +487,10 @@ RunRecord RunController::snapshot(const char* by) const {
 
 void RunController::endRun(const char* by) {
     if (session_ && session_->state() != State::Over) session_->stop();
-    fetcher_.requestStop();
-    if (pending_) deleteFile(pending_->path);
+    fetcher_.requestStop();  // a download in progress is thrown away when it ends; nothing new starts
+    // a map the game is loading right now (Loading: PlayMapFile sent) keeps its file: the game reads it.
+    // Every queued call of ours checks active() first, so no map is started after this.
+    if (pending_ && phase_ != Phase::Loading) deleteFile(pending_->path);
     releaseMap(pending_);
     releaseMap(cur_);
     injected_.clear();

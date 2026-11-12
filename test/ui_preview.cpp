@@ -4,6 +4,7 @@
 //
 //   ui_preview.exe                          interactive window: F8 menu, "Fake game" panel, Ctrl+F9/F10/F11
 //   ui_preview.exe --shots <dir>            renders the pages to PNG (1920x1080) and exits (few live TMX requests)
+//   ui_preview.exe --check-stop             Stop while downloading, loading and racing (live TMX), exit code 0 = ok
 //   options: --game eswc|sunrise|original|tmnf|tmuf (default eswc), --data <dir> (plugin data folder)
 //
 // The ImGui style here is TM Vibrant Shaders' (src/overlay.cpp), standing in for the Horizon host's style.
@@ -194,7 +195,9 @@ public:
     bool isOnline() override { return online_; }
     bool actionsAllowed() override { return !online_; }
     bool menuOpen() override { return menuOpen_; }
+    int plays_ = 0;
     HostResult playMapFile(const std::string& path) override {
+        ++plays_;
         log(LogInfo, "[gamectl] PlayMapFile " + path);
         if (online_) return HostResult::BlockedOnline;
         if (state_ != GameState::MainMenu) return HostResult::WrongState;
@@ -779,13 +782,64 @@ int runShots(App& app, std::string dir) {
     return g_shotFails ? 1 : 0;
 }
 
+// --check-stop: Stop while the first map downloads, while a map loads and while racing. Each time the run
+// must end like a timed-out run (results + history file) and no map may be started afterwards.
+int runStopChecks(App& app) {
+    FakeHost& host = *app.host;
+    RunController& run = app.plugin->run();
+    int fails = 0;
+    auto check = [&](bool ok, const char* what) {
+        std::printf("%s %s\n", ok ? "ok  " : "FAIL", what);
+        if (!ok) ++fails;
+    };
+    auto stopAndCheck = [&](const char* when) {
+        size_t before = app.plugin->history().runs().size();
+        int plays = host.plays_;
+        run.stop();
+        app.frames(2);
+        std::string w = std::string(" (") + when + ")";
+        check(run.phase() == Phase::Over, ("phase is Over" + w).c_str());
+        check(run.lastRun().endedBy == "user", ("ended by the user" + w).c_str());
+        check(app.plugin->history().runs().size() == before + 1, ("history entry saved" + w).c_str());
+        // a few seconds of frames: no new PlayMapFile, the fetcher's late download is dropped
+        app.waitUntil([] { return false; }, 3000);
+        check(host.plays_ == plays, ("no map started afterwards" + w).c_str());
+        check(run.phase() == Phase::Over, ("still Over" + w).c_str());
+        run.newRun();
+        host.state_ = GameState::MainMenu;
+    };
+    std::string why;
+    host.menuOpen_ = true;
+    // 1. while the first map is being fetched (Preparing)
+    if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+    app.frames(3);
+    check(run.phase() == Phase::Preparing, "phase Preparing right after start");
+    stopAndCheck("downloading");
+    // 2. while the map is loading (PlayMapFile sent, no RACE_START yet)
+    if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+    if (!app.waitUntil([&] { return run.phase() == Phase::Loading; }, 120000)) { std::printf("no Loading phase\n"); return 1; }
+    std::shared_ptr<PreparedMap> loading = run.displayMap();
+    stopAndCheck("loading");
+    check(loading && GetFileAttributesW(toWide(loading->path).c_str()) != INVALID_FILE_ATTRIBUTES, "the map being loaded keeps its file");
+    // 3. while racing, with progress (the confirm path is UI; stop() is what its button calls)
+    if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+    if (!app.waitUntil([&] { return run.phase() == Phase::Playing; }, 120000)) { std::printf("no Playing phase\n"); return 1; }
+    host.advance(90000);
+    app.frames(2);
+    stopAndCheck("racing");
+    std::printf("%d failures\n", fails);
+    return fails ? 1 : 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     std::string shotsDir, data;
     HostGame game = HostGame::Eswc;
+    bool checkStop = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--shots") && i + 1 < argc) shotsDir = argv[++i];
+        else if (!std::strcmp(argv[i], "--check-stop")) checkStop = true;
         else if (!std::strcmp(argv[i], "--data") && i + 1 < argc) data = argv[++i];
         else if (!std::strcmp(argv[i], "--game") && i + 1 < argc) {
             std::string g = argv[++i];
@@ -793,7 +847,7 @@ int main(int argc, char** argv) {
                  : g == "tmuf" ? HostGame::Tmuf : HostGame::Eswc;
         }
     }
-    g_shots = !shotsDir.empty();
+    g_shots = !shotsDir.empty() || checkStop;  // off-screen, fresh data folder
     if (data.empty()) {
         if (g_shots) {
             // fresh data folder: the screenshots show exactly one run
@@ -848,7 +902,9 @@ int main(int argc, char** argv) {
     App app{&host, &plugin};
 
     int rc2 = 0;
-    if (g_shots) {
+    if (checkStop) {
+        rc2 = runStopChecks(app);
+    } else if (g_shots) {
         rc2 = runShots(app, shotsDir);
     } else {
         bool done = false;

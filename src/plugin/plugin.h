@@ -44,7 +44,7 @@ public:
     void panelTimer();
     void panelMap();
     void panelMedals();
-    void panelControls();
+    void panelControls(bool withStop = true);  // the Run page has its own Stop next to the timer
     void panelSession();
     void panelCard();
 
@@ -56,7 +56,9 @@ private:
     void drawMapsTable(const RunRecord& r, const char* id, float height);
     void drawMapCard(PreparedMap* m, float width, bool thumb);
     void drawMedalRows(PreparedMap* m, float width);
-    void drawControls(float width);
+    void drawControls(float width, bool withStop = true);
+    void stopButton(ImVec2 size);  // "Stop": at once, or a confirm when the run has progress
+    void stopPopup();              // the confirm, submitted once per frame (drawOverlay)
     void drawResultsToast();
     void ensureTexture(PreparedMap* m);
     ImFont* titleFont();
