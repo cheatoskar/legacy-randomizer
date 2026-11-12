@@ -95,6 +95,8 @@ TmxError getRandomMap(Site s, const TmxFilter& f, MapInfo& out, const HttpOption
 // optionally returns the bytes.
 TmxError downloadMap(Site s, long long id, const std::string& path, std::string* bytesOut = nullptr,
                      const HttpOptions& o = HttpOptions());
+// The write step of downloadMap: bytes to path (UTF-8, taken as it is) via path + ".part" and a rename.
+TmxError writeMapFile(const std::string& path, const std::string& bytes);
 
 // Screenshot TMX shows for a map: GET /trackshow/<id>/image/1 (JPEG; checked live on
 // sunrise.tm-exchange.com and tmnf.exchange 2026-11-11). Fails when the map has none.

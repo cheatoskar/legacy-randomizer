@@ -313,6 +313,13 @@ TmxError downloadMap(Site s, long long id, const std::string& path, std::string*
     if (r.status != 200) return {"download answered HTTP " + std::to_string(r.status)};
     if (r.body.size() < 16 || std::memcmp(r.body.data(), "GBX", 3) != 0)
         return {"downloaded file is not a GBX (" + std::to_string(r.body.size()) + " bytes)"};
+    e = writeMapFile(path, r.body);
+    if (!e.ok()) return e;
+    if (bytesOut) *bytesOut = std::move(r.body);
+    return {};
+}
+
+TmxError writeMapFile(const std::string& path, const std::string& bytes) {
     // path is UTF-8; fall back to ANSI for byte strings that are not valid UTF-8
     std::wstring wpath;
     int wn = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path.c_str(), -1, nullptr, 0);
@@ -330,15 +337,14 @@ TmxError downloadMap(Site s, long long id, const std::string& path, std::string*
     std::wstring tmp = wpath + L".part";
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, tmp.c_str(), L"wb") != 0 || !fp) return {"cannot write " + path + ".part"};
-    size_t wrote = std::fwrite(r.body.data(), 1, r.body.size(), fp);
+    size_t wrote = std::fwrite(bytes.data(), 1, bytes.size(), fp);
     int closed = std::fclose(fp);
-    if (wrote != r.body.size() || closed != 0) { DeleteFileW(tmp.c_str()); return {"short write to " + path + ".part"}; }
+    if (wrote != bytes.size() || closed != 0) { DeleteFileW(tmp.c_str()); return {"short write to " + path + ".part"}; }
     if (!MoveFileExW(tmp.c_str(), wpath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         DWORD e2 = GetLastError();
         DeleteFileW(tmp.c_str());
         return {winErr("rename of downloaded file", e2)};
     }
-    if (bytesOut) *bytesOut = std::move(r.body);
     return {};
 }
 

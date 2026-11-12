@@ -146,6 +146,38 @@ static std::string xmlAttrOf(const std::string& bytes, const char* key) {
     return bytes.substr(a, b - a);
 }
 
+// The map's file name is sanitised, the folder is not: TMLoader's data folder is "...\Horizon Host\data\..."
+static void testMapFiles() {
+    section("map file names and the download write");
+    for (Site s : {Site::TMNF, Site::TMUF, Site::TMN_ESWC, Site::TMS, Site::TMO}) {
+        std::string n = mapFileName(s, 123456);
+        CHECK(!n.empty());
+        CHECK(n.find(' ') == std::string::npos);
+        CHECK(n.find('\\') == std::string::npos && n.find('/') == std::string::npos);
+        CHECK(n.find("123456") != std::string::npos);
+        CHECK(n.size() > 14 && n.compare(n.size() - 14, 14, ".Challenge.Gbx") == 0);
+    }
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec) / "lr test dir with spaces";
+    fs::remove_all(base, ec);
+    fs::path dirW = base / "Horizon Host" / "data" / "maps";
+    CHECK(fs::create_directories(dirW, ec));
+    std::string dir = dirW.u8string() + "\\";
+    CHECK(dir.find(' ') != std::string::npos);
+    const std::string bytes = std::string("GBX\x06\x00", 5) + "fake map body";
+    std::string path = dir + mapFileName(Site::TMS, 42);
+    CHECK(writeMapFile(path, bytes).ok());
+    fs::path expect = dirW / fs::u8path(mapFileName(Site::TMS, 42));
+    CHECK(fs::exists(expect, ec));
+    CHECK(!fs::exists(fs::u8path(path + ".part"), ec));
+    CHECK_EQ(readAll(expect), bytes);
+    CHECK(writeMapFile(path, bytes + "x").ok());  // replaces an existing file
+    CHECK_EQ(readAll(expect), bytes + "x");
+    CHECK(!writeMapFile((base / "missing folder" / "x.Gbx").u8string(), bytes).ok());
+    fs::remove_all(base, ec);
+    CHECK(!fs::exists(base, ec));
+}
+
 static void testGbx(const fs::path& mapsDir) {
     section("gbx header");
     CHECK_EQ(percentDecode("%24000%5e%5e"), std::string("$000^^"));
@@ -616,6 +648,7 @@ int main(int argc, char** argv) {
     }
     testJson();
     testTmxHelpers();
+    testMapFiles();
     testGbx(maps);
     testSession();
     testGoals();
