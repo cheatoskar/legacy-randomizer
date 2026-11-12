@@ -97,9 +97,8 @@ Hotkeys (host registry): `skip` Ctrl+F9, `gold-skip` Ctrl+F10, `toggle-hud` Ctrl
 ## Off by default / not solid yet
 
 - *Edit layout*, *Never a map you finished before*, *Avoid maps you skipped*, replay autosave (greyed out).
-- Sunrise: no finish detection (host); skip manually.
-- Original: experimental; the host refuses map loading there today (`NOT_SUPPORTED` → the run ends with a message).
-- `inreplays` / `inlatestauthor` / `insupporter` were not verified live.
+- Sunrise: finish detection through the host's Sunrise events (3348e97), not run in a real game yet.
+- Original: experimental. `plugin.json` lists `original`; it needs a host with TM Original support (horizon-host `tmo`, in Horizon Client 0.3.0-rc.1: map loading, start/finish/checkpoint events, Online Patch v2 exe only). An older host answers `NOT_SUPPORTED` → the run ends with a message. Not run in a real game yet.
 
 ## 0.3 polish (UI only, run logic unchanged)
 
