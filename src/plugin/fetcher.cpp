@@ -210,9 +210,8 @@ bool Fetcher::fetchOne(PreparedMap& out, std::string& err) {
             std::lock_guard<std::mutex> l(mu_);
             status_ = "Downloading map " + std::to_string(info.id);
         }
-        std::string path = job.folder + siteName(src.site) + std::string("_") + std::to_string(info.id) + ".Challenge.Gbx";
-        for (char& c : path)
-            if (c == ' ') c = '_';
+        // Only the file name is sanitised: the folder may contain spaces (TMLoader: "...\products\Horizon Host\data\...")
+        std::string path = job.folder + mapFileName(src.site, info.id);
         std::string bytes;
         e = downloadMap(src.site, info.id, path, &bytes, http);
         if (!e.ok()) { err = "download of map " + std::to_string(info.id) + ": " + e.message; return false; }

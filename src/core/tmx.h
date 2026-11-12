@@ -17,6 +17,9 @@ enum class Site { TMNF, TMUF, TMN_ESWC, TMS, TMO };
 
 const char* siteHost(Site s);  // e.g. "tmnf.exchange"
 const char* siteName(Site s);  // e.g. "TMNF"
+// File name of a downloaded map, e.g. "TM_Sunrise_123.Challenge.Gbx": no spaces, no folder. Only this part
+// is sanitised; the folder in front of it is taken as it is (it may contain spaces, e.g. "Horizon Host").
+std::string mapFileName(Site s, long long id);
 
 struct TmxFilter {
     // Author time window in ms. Used instead of the API's "Length" field, which is not usable

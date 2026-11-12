@@ -135,6 +135,13 @@ const char* siteName(Site s) {
     return "";
 }
 
+std::string mapFileName(Site s, long long id) {
+    std::string n = std::string(siteName(s)) + "_" + std::to_string(id) + ".Challenge.Gbx";
+    for (char& c : n)
+        if (c == ' ') c = '_';
+    return n;
+}
+
 std::string buildRandomPath(const TmxFilter& f) {
     std::string q;
     if (f.excludeUnlimiter) appendQuery(q, "inunlimiter=0");
