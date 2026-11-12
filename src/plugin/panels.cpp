@@ -134,7 +134,7 @@ void Panels::applyCompactPreset() {
 
 // ------------------------------------------------------------------ the menu page
 
-void Panels::drawNavigation() {
+void Panels::drawNavigation(bool iconsOnly) {
     const UiStyle& st = ui::style();
     const float sc = st.scale;
     const float h = 34.0f * sc;
@@ -144,7 +144,14 @@ void Panels::drawNavigation() {
         if (d.hud && !hudHeader) {
             hudHeader = true;
             ImGui::Dummy(ImVec2(0, 8 * sc));
-            ImGui::TextColored(st.muted, "HUD PANELS");
+            if (iconsOnly) {
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                float wd = ImGui::GetContentRegionAvail().x;
+                dl->AddLine(ImVec2(p.x + 6 * sc, p.y), ImVec2(p.x + wd - 6 * sc, p.y), ui::col(st.muted, 0.4f), 1.0f);
+                ImGui::Dummy(ImVec2(0, 6 * sc));
+            } else {
+                ui::textFit("HUD PANELS", 0, &st.muted);
+            }
         }
         PanelState& w = state(d);
         const bool active = current_ == d.key && !w.detached;
@@ -156,7 +163,7 @@ void Panels::drawNavigation() {
         ImGui::PopID();
         const float is = 16.0f * sc;
         const ImVec2 popMin(p.x + wd - is - 8 * sc, p.y + (h - is) * 0.5f), popMax(popMin.x + is, popMin.y + is);
-        const bool onPop = hovered && !w.detached && ImGui::IsMouseHoveringRect(popMin, popMax);
+        const bool onPop = !iconsOnly && hovered && !w.detached && ImGui::IsMouseHoveringRect(popMin, popMax);
         if (clicked) {
             if (w.detached) {
                 w.minimized = false;
@@ -168,23 +175,32 @@ void Panels::drawNavigation() {
             }
         }
         if (hovered) {
-            if (w.detached) ImGui::SetTooltip("%s is in its own window. Click to bring the window to the front.", d.title);
-            else if (onPop) ImGui::SetTooltip("Open %s in its own window", d.title);
-            else ImGui::SetTooltip("%s", d.hint);
+            if (w.detached) ImGui::SetTooltip("%s: in its own window", d.title);
+            else if (onPop) ImGui::SetTooltip("Pop out %s", d.title);
+            else ImGui::SetTooltip("%s", iconsOnly ? d.title : d.hint);
         }
         if (active || hovered)
             dl->AddRectFilled(p, ImVec2(p.x + wd, p.y + h), active ? ui::col(st.accent, 0.16f) : IM_COL32(255, 255, 255, 14), 6 * sc);
         if (active) dl->AddRectFilled(ImVec2(p.x, p.y + h * 0.22f), ImVec2(p.x + 3 * sc, p.y + h * 0.78f), ui::col(st.accent), 2);
         ImU32 tc = active ? ui::col(st.text) : ui::col(st.text2, w.detached ? 0.5f : 0.85f);
+        if (iconsOnly) {
+            drawIcon(dl, d.icon, ImVec2(p.x + (wd - is) * 0.5f, p.y + (h - is) * 0.5f), is, active ? ui::col(st.accent) : tc);
+            continue;
+        }
         drawIcon(dl, d.icon, ImVec2(p.x + 10 * sc, p.y + (h - is) * 0.5f), is, active ? ui::col(st.accent) : tc);
         float th = ImGui::GetTextLineHeight();
-        dl->AddText(ImVec2(p.x + 34 * sc, p.y + (h - th) * 0.5f), tc, d.title);
-        if (w.detached) {
-            const char* mark = "(detached)";
-            ImVec2 ms = ImGui::CalcTextSize(mark);
-            dl->AddText(nullptr, ImGui::GetFontSize() * 0.8f, ImVec2(p.x + wd - ms.x * 0.8f - 8 * sc, p.y + (h - th * 0.8f) * 0.5f),
+        // right end: "(detached)" or the pop-out symbol; the title gets the rest
+        const char* mark = "(detached)";
+        const float markW = ImGui::CalcTextSize(mark).x * 0.8f;
+        const float tx = p.x + 34 * sc;
+        bool showMark = w.detached && wd - 34 * sc - markW - 16 * sc >= ImGui::CalcTextSize(d.title).x;
+        float right = showMark ? markW + 16 * sc : (hovered || active) && !w.detached ? is + 14 * sc : 6 * sc;
+        std::string t = ui::ellipsize(d.title, wd - 34 * sc - right);
+        dl->AddText(ImVec2(tx, p.y + (h - th) * 0.5f), tc, t.c_str());
+        if (showMark) {
+            dl->AddText(nullptr, ImGui::GetFontSize() * 0.8f, ImVec2(p.x + wd - markW - 8 * sc, p.y + (h - th * 0.8f) * 0.5f),
                         ui::col(st.muted), mark);
-        } else if (hovered || active) {
+        } else if (!w.detached && (hovered || active)) {
             drawIcon(dl, Icon::PopOut, popMin, is, onPop ? ui::col(st.accent) : ui::col(st.muted));
         }
     }
@@ -195,13 +211,13 @@ void Panels::drawCurrentPage() {
     if (!d) d = &kPanels[0];
     PanelState& w = state(*d);
     if (w.detached) {
-        ImGui::TextColored(ui::style().muted, "%s is in its own window.", d->title);
-        if (ImGui::Button("Show the window")) {
+        ui::textFit((std::string(d->title) + ": own window").c_str(), 0, &ui::style().muted);
+        if (ImGui::Button("Show")) {
             w.minimized = false;
             ImGui::SetWindowFocus((std::string(d->title) + "##lrwin_" + d->key).c_str());
         }
         ImGui::SameLine();
-        if (ImGui::Button("Bring it back here")) attach(*d);
+        if (ImGui::Button("Back here")) attach(*d);
         return;
     }
     d->draw(plugin_);

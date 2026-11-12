@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "imgui_internal.h"  // the line's text offset (after AlignTextToFramePadding)
+
 namespace lr {
 
 void drawIcon(ImDrawList* dl, Icon ic, ImVec2 o, float s, ImU32 c) {
@@ -178,7 +180,7 @@ void icon(Icon ic, ImU32 col, float size) {
     if (!col) col = ImGui::GetColorU32(ImGuiCol_Text);
     ImVec2 p = ImGui::GetCursorScreenPos();
     float lh = ImGui::GetTextLineHeight();
-    float dy = size < lh ? (lh - size) * 0.5f : 0.0f;
+    float dy = (size < lh ? (lh - size) * 0.5f : 0.0f) + ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;
     drawIcon(ImGui::GetWindowDrawList(), ic, ImVec2(p.x, p.y + dy), size, col);
     ImGui::Dummy(ImVec2(size, size > lh ? size : lh));
 }

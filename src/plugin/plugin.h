@@ -32,6 +32,8 @@ public:
     RunController& run() { return run_; }
     Panels& panels() { return panels_; }
     void selectHistoryRun(int i) { histSel_ = i; }
+    void requestStop();  // Stop: at once, or the confirm popup when the run has progress
+    void setAdvancedOpen(bool open) { advFilters_ = advRules_ = open; }  // the "Advanced" rows (preview shots)
     void markDirty() { dirty_ = true; }
 
     // rows of the page/panel table (panels.cpp): the same body in the menu and in a window
@@ -49,7 +51,8 @@ public:
     void panelCard();
 
 private:
-    void drawHeader();
+    void drawHeader(bool compact);
+    bool stacked() const;  // the current page region is too narrow for two columns of cards
     void siteBadge(Site site, float size);
     void siteBadges(const std::vector<Site>& sites, float size);  // logos side by side
     void drawResults(const RunRecord& r, bool live);
@@ -74,6 +77,8 @@ private:
     bool dirty_ = false;
     int histSel_ = -1;
     bool toastDismissed_ = true;
+    bool stopAsk_ = false;  // open the Stop confirm (stopPopup)
+    bool advFilters_ = false, advRules_ = false;  // "Advanced" rows open
     int hkSkip_ = 0, hkGoldSkip_ = 0, hkHud_ = 0, hkNext_ = 0;
 };
 

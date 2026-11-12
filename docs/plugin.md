@@ -34,6 +34,16 @@ One table, one row per page or panel (key, title, hint, icon, HUD or not, draw).
 - **Edit layout** (off by default): while the menu is open the HUD windows have title bars and an accent outline and can be moved and resized. **Locked** (edit off): no title bar, no move/resize, the height fits the content, and every panel lets clicks through to the game except Controls and the card's button row.
 - Saved per row in the host settings as `win_<key>` = `detached,minimized,keepOpen,x,y,w,h,opacity`, with x/y/w/h as **fractions of the screen** (resolution changes keep the layout). `layout_version` marks that the default preset was applied once.
 
+## Narrow layout
+
+The page lays itself out by its width (`page_w` from `ui_metrics` on hosts with ABI minor 4, else the ImGui region; both divided by the scale), so it works docked and popped out down to `min_w`:
+
+- Page under 800 px: the header on two lines (title; then site with logo, game, version and the *Experimental* / *Paused online* chips, wrapping), the navigation 156 px wide; under 600 px the navigation shows icons only (titles as tooltips).
+- Page body under 680 px: the cards stack instead of two columns; the History and results tables drop the Game/Skips and Author/TMX columns.
+- Text is never clipped mid-word: single-line labels are cut with an ellipsis (`ui::ellipsize`, `ui::textFit`, full text as tooltip), segmented controls share the width, rows of counters and the run details wrap as whole pieces.
+- Menu-style texts: labels of one to three words, explanations only as short tooltips (card title (i), field (i), segment hover).
+- Check: `ui_preview.exe --shots <dir> --size 670x530 [--quick] [--game tmnf]` renders the pages in a window of that size (menu shots cropped to it; with `--size` also the scrolled *Advanced* sections, the live Run page, the Stop confirm and About).
+
 ## How a run works
 
 Unchanged from 0.1 except where the new rules need it:

@@ -45,7 +45,7 @@ public:
     void attach(const PanelDef& d);
 
     // in the plugin's menu page
-    void drawNavigation();
+    void drawNavigation(bool iconsOnly = false);  // iconsOnly: a narrow menu (titles as tooltips)
     void drawCurrentPage();
     void select(const char* key) { current_ = key; }
     const std::string& current() const { return current_; }

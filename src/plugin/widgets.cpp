@@ -31,9 +31,99 @@ const UiStyle& style() { return g_style; }
 
 ImU32 col(const ImVec4& c, float alphaMul) { return ImGui::ColorConvertFloat4ToU32(ImVec4(c.x, c.y, c.z, c.w * alphaMul)); }
 
+namespace {
+void wrappedTooltip(const char* text) {
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+} // namespace
+
+// ------------------------------------------------------------------ text that fits
+
+std::string ellipsize(const char* text, float maxW, ImFont* font, float size) {
+    if (!font) {
+        font = ImGui::GetFont();
+        if (size <= 0) size = ImGui::GetFontSize();
+    }
+    if (size <= 0) size = font->FontSize;
+    const char* end = ImGui::FindRenderedTextEnd(text);
+    if (font->CalcTextSizeA(size, FLT_MAX, 0.0f, text, end).x <= maxW) return std::string(text, end);
+    const char* ell = font->FindGlyphNoFallback(0x2026) ? "\xE2\x80\xA6" : "...";
+    const float room = maxW - font->CalcTextSizeA(size, FLT_MAX, 0.0f, ell).x;
+    const char* fit = text;
+    float w = 0;
+    for (const char* p = text; p < end;) {
+        unsigned int c = 0;
+        int n = ImTextCharFromUtf8(&c, p, end);
+        if (n <= 0) break;
+        float cw = font->CalcTextSizeA(size, FLT_MAX, 0.0f, p, p + n).x;
+        if (w + cw > room) break;
+        w += cw;
+        p += n;
+        fit = p;
+    }
+    std::string s(text, fit);
+    // no dangling separator before the ellipsis ("RMC · " -> "RMC…")
+    for (;;) {
+        if (!s.empty() && (s.back() == ' ' || s.back() == ',')) s.pop_back();
+        else if (s.size() >= 2 && s.compare(s.size() - 2, 2, "\xC2\xB7") == 0) s.resize(s.size() - 2);
+        else break;
+    }
+    return s + ell;
+}
+
+bool textFit(const char* text, float maxW, const ImVec4* color) {
+    if (maxW <= 0) maxW = ImGui::GetContentRegionAvail().x;
+    std::string s = ellipsize(text, maxW);
+    bool cut = s != std::string(text, ImGui::FindRenderedTextEnd(text));
+    if (color) ImGui::TextColored(*color, "%s", s.c_str());
+    else ImGui::TextUnformatted(s.c_str());
+    if (cut && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) wrappedTooltip(text);
+    return cut;
+}
+
+float pillWidth(const char* text, bool img) {
+    float lh = ImGui::GetTextLineHeight();
+    return ImGui::CalcTextSize(text).x + 16 * sc() + (img ? lh + 5 * sc() : 0.0f);
+}
+
+void pill(const char* text, const ImVec4& color, bool outline, const char* tip, ImTextureID img) {
+    const float lh = ImGui::GetTextLineHeight();
+    const float h = lh + 4 * sc(), padX = 8 * sc(), is = img ? lh : 0.0f, ig = img ? 5 * sc() : 0.0f;
+    float w = pillWidth(text, img != 0);
+    // after SameLine(): to the next line when it doesn't fit; alone on a line: cut the text
+    if (ImGui::GetCursorPosX() > ImGui::GetCursorStartPos().x + 1 && ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+    std::string t = text;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    if (w > avail) {
+        t = ellipsize(text, std::max(0.0f, avail - 2 * padX - is - ig));
+        w = avail;
+    }
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (outline) dl->AddRect(ImVec2(p.x + 0.5f, p.y + 0.5f), ImVec2(p.x + w - 0.5f, p.y + h - 0.5f), col(color, 0.7f), h * 0.5f, 0, 1.0f * sc());
+    else dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(color, 0.14f), h * 0.5f);
+    float x = p.x + padX;
+    if (img) {
+        dl->AddImageRounded(img, ImVec2(x, p.y + 2 * sc()), ImVec2(x + is, p.y + 2 * sc() + is), ImVec2(0, 0), ImVec2(1, 1), IM_COL32_WHITE, is * 0.18f);
+        x += is + ig;
+    }
+    dl->AddText(ImVec2(x, p.y + (h - lh) * 0.5f), col(color), t.c_str());
+    ImGui::Dummy(ImVec2(w, h));
+    if (ImGui::IsItemHovered() && (tip || t != text)) wrappedTooltip(tip ? tip : text);
+}
+
+void flowNext(float w, float spacing) {
+    ImGui::SameLine(0, spacing);
+    if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+}
+
 // ------------------------------------------------------------------ cards
 
-void beginCard(const char* title, Icon ic, float width) {
+void beginCard(const char* title, Icon ic, float width, const char* tip) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, cardColor());
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1, 1, 1, 0.07f));
     // the host's buttons have the card's surface colour: one step lighter on a card, or they vanish
@@ -50,7 +140,19 @@ void beginCard(const char* title, Icon ic, float width) {
     float h = f->FontSize * 0.8f;
     dl->AddRectFilled(ImVec2(p.x, p.y + h * 0.1f), ImVec2(p.x + 3.0f * sc(), p.y + h * 0.95f), col(g_style.accent), 2.0f);
     drawIcon(dl, ic, ImVec2(p.x + 10 * sc(), p.y + h * 0.08f), h * 0.84f, col(g_style.text2));
-    dl->AddText(f, h, ImVec2(p.x + 10 * sc() + h + 6 * sc(), p.y), col(g_style.text), title, ImGui::FindRenderedTextEnd(title));
+    const float tx = p.x + 10 * sc() + h + 6 * sc();
+    const float tipS = ImGui::GetTextLineHeight() * 0.8f;
+    float room = ImGui::GetContentRegionAvail().x - (tx - p.x) - (tip ? tipS + 8 * sc() : 0.0f);
+    std::string t = ellipsize(title, room, f, h);
+    dl->AddText(f, h, ImVec2(tx, p.y), col(g_style.text), t.c_str());
+    if (tip) {
+        // (i) after the title: the card's one-line explanation on hover
+        float x = tx + f->CalcTextSizeA(h, FLT_MAX, 0.0f, t.c_str()).x + 8 * sc();
+        ImVec2 a(x, p.y + (h - tipS) * 0.5f), b(a.x + tipS, a.y + tipS);
+        bool hov = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(ImVec2(a.x - 3, a.y - 3), ImVec2(b.x + 3, b.y + 3));
+        drawIcon(dl, Icon::Info, a, tipS, col(hov ? g_style.accent : g_style.muted, 0.9f));
+        if (hov) wrappedTooltip(tip);
+    }
     ImGui::Dummy(ImVec2(0, h + 6 * sc()));
 }
 
@@ -67,17 +169,22 @@ void emptyState(Icon ic, const char* line) {
     ImVec2 p = ImGui::GetCursorScreenPos();
     drawIcon(ImGui::GetWindowDrawList(), ic, ImVec2(p.x + (w - is) * 0.5f, p.y + 6 * sc()), is, col(g_style.muted, 0.8f));
     ImGui::Dummy(ImVec2(w, is + 14 * sc()));
-    float tw = ImGui::CalcTextSize(line).x;
+    std::string t = ellipsize(line, w);
+    float tw = ImGui::CalcTextSize(t.c_str()).x;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (w - tw) * 0.5f));
-    ImGui::TextColored(g_style.muted, "%s", line);
+    ImGui::TextColored(g_style.muted, "%s", t.c_str());
     ImGui::Dummy(ImVec2(0, 4 * sc()));
 }
 
 // ------------------------------------------------------------------ labels, rows
 
+namespace {
+float infoTipWidth() { return ImGui::GetTextLineHeight() * 0.8f + ImGui::GetStyle().ItemInnerSpacing.x; }
+} // namespace
+
 void fieldLabel(const char* label, const char* tip) {
     ImGui::Dummy(ImVec2(0, 2 * sc()));
-    ImGui::TextColored(g_style.muted, "%s", label);
+    textFit(label, ImGui::GetContentRegionAvail().x - (tip ? infoTipWidth() : 0.0f), &g_style.muted);
     if (tip) infoTip(tip);
 }
 
@@ -114,9 +221,11 @@ bool switchRow(const char* label, bool* v, const char* tip) {
     ImGui::PushID(label);
     ImGui::AlignTextToFramePadding();
     bool disabled = (ImGui::GetCurrentContext()->CurrentItemFlags & ImGuiItemFlags_Disabled) != 0;
-    ImGui::TextColored(disabled ? g_style.muted : g_style.text, "%s", label);
-    if (tip) infoTip(tip);
     float w = ImGui::GetFrameHeight() * 0.86f * 1.8f;
+    // the label gets what the switch leaves (cut with an ellipsis, never under the switch)
+    float room = ImGui::GetContentRegionAvail().x - w - ImGui::GetStyle().ItemSpacing.x - (tip ? infoTipWidth() : 0.0f);
+    textFit(label, room, disabled ? &g_style.muted : &g_style.text);
+    if (tip) infoTip(tip);
     ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - w));
     bool r = toggle("##switch", v);
     ImGui::PopID();
@@ -130,20 +239,14 @@ void infoTip(const char* text) {
     float lh = ImGui::GetTextLineHeight();
     float base = ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;  // text after AlignTextToFramePadding sits lower
     ImGui::Dummy(ImVec2(s, lh));
-    bool hov = ImGui::IsItemHovered();
+    bool hov = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);  // explains locked rows too
     drawIcon(ImGui::GetWindowDrawList(), Icon::Info, ImVec2(p.x, p.y + base + (lh - s) * 0.5f), s, col(hov ? g_style.accent : g_style.muted, 0.9f));
-    if (hov) {
-        ImGui::BeginTooltip();
-        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
-        ImGui::TextUnformatted(text);
-        ImGui::PopTextWrapPos();
-        ImGui::EndTooltip();
-    }
+    if (hov) wrappedTooltip(text);
 }
 
 // ------------------------------------------------------------------ inputs
 
-bool segmented(const char* id, int* value, const char* const* labels, int count, float width) {
+bool segmented(const char* id, int* value, const char* const* labels, int count, float width, const char* const* tips) {
     ImGui::PushID(id);
     const float h = ImGui::GetFrameHeight();
     const float pad = 12.0f * sc();
@@ -154,6 +257,10 @@ bool segmented(const char* id, int* value, const char* const* labels, int count,
     if (width > total) {
         float extra = (width - total) / count;
         for (float& x : w) x += extra;
+        total = width;
+    } else if (width > 0 && width < total) {
+        // too narrow for the labels: equal shares, the labels cut with an ellipsis
+        for (float& x : w) x = width / count;
         total = width;
     }
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -175,9 +282,12 @@ bool segmented(const char* id, int* value, const char* const* labels, int count,
         bool sel = *value == i;
         if (sel) dl->AddRectFilled(ImVec2(x + 2, p.y + 2), ImVec2(x + wi - 2, p.y + h - 2), col(g_style.accent, 0.9f), r - 1);
         else if (hov) dl->AddRectFilled(ImVec2(x + 2, p.y + 2), ImVec2(x + wi - 2, p.y + h - 2), IM_COL32(255, 255, 255, 16), r - 1);
-        ImVec2 ts = ImGui::CalcTextSize(labels[i]);
+        std::string lab = ellipsize(labels[i], wi - 10 * sc());
+        ImVec2 ts = ImGui::CalcTextSize(lab.c_str());
         dl->AddText(ImVec2(x + (wi - ts.x) * 0.5f, p.y + (h - ts.y) * 0.5f), sel ? IM_COL32(20, 16, 12, 255) : col(hov ? g_style.text : g_style.text2),
-                    labels[i]);
+                    lab.c_str());
+        if (hov && (tips && tips[i])) wrappedTooltip(tips[i]);
+        else if (hov && lab != labels[i]) wrappedTooltip(labels[i]);
         x += wi;
     }
     ImGui::SetCursorScreenPos(p);
@@ -215,8 +325,8 @@ bool triState(const char* label, int* v) {
     int idx = *v < 0 ? 0 : (*v == 1 ? 1 : 2);
     ImGui::PushID(label);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(label, ImGui::FindRenderedTextEnd(label));
-    float segW = 150 * sc();
+    float segW = std::min(150 * sc(), ImGui::GetContentRegionAvail().x * 0.55f);
+    textFit(label, ImGui::GetContentRegionAvail().x - segW - ImGui::GetStyle().ItemSpacing.x);
     ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - segW));
     bool ch = segmented("tri", &idx, opts, 3, segW);
     ImGui::PopID();
@@ -383,12 +493,13 @@ bool bigButton(const char* label, Icon ic, ImVec2 size, bool enabled) {
     float a = enabled ? (held ? 1.0f : hov ? 0.95f : 0.85f) : 0.3f;
     dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), col(g_style.accent, a), 8 * sc());
     if (g_style.title) ImGui::PushFont(g_style.title);
-    ImVec2 ts = ImGui::CalcTextSize(label, nullptr, true);
-    float is = ts.y * 0.75f, gap = 10 * sc();
+    float is = ImGui::GetTextLineHeight() * 0.75f, gap = 10 * sc();
+    std::string lab = ellipsize(label, size.x - is - gap - 24 * sc());
+    ImVec2 ts = ImGui::CalcTextSize(lab.c_str());
     float x = p.x + (size.x - ts.x - is - gap) * 0.5f;
     ImU32 ink = IM_COL32(20, 16, 12, enabled ? 255 : 160);
     drawIcon(dl, ic, ImVec2(x, p.y + (size.y - is) * 0.5f), is, ink);
-    dl->AddText(ImVec2(x + is + gap, p.y + (size.y - ts.y) * 0.5f), ink, label, ImGui::FindRenderedTextEnd(label));
+    dl->AddText(ImVec2(x + is + gap, p.y + (size.y - ts.y) * 0.5f), ink, lab.c_str());
     if (g_style.title) ImGui::PopFont();
     return clicked;
 }

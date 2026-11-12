@@ -1,6 +1,7 @@
 // Menu pages (Run, Filters, Rules, HUD & layout, History, About) and the HUD panels (Timer, Map, Medals,
 // Controls, Session, Compact card). Which page shows where is panels.cpp's job. Colours come from the
 // host's style; the only own colours are the medal colours.
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -83,8 +84,8 @@ const char* modeTitle(const std::string& key) {
 const char* modeShort(Mode m) { return m == Mode::RMC ? "Challenge" : m == Mode::RMS ? "Survival" : "Free play"; }
 
 const char* resultTitle(const std::string& k) {
-    if (k == "author") return "Author medal";
-    if (k == "gold") return "Gold medal";
+    if (k == "author") return "Author";
+    if (k == "gold") return "Gold";
     if (k == "gold_skip") return "Gold skip";
     if (k == "skipped") return "Skipped";
     if (k == "free_skip") return "Free skip";
@@ -98,12 +99,12 @@ const char* const kTags[] = {"Race", "Stunt", "Maze", "Offroad", "Multilap", "Fu
                              "PressForward", "Trial", "Grass", "Story", "Nascar", "Speedfun", "Endurance", "Altered Nadeo",
                              "Transitional"};
 const int kTagCount = static_cast<int>(sizeof kTags / sizeof kTags[0]);
-const char* const kSiteChoices[] = {"Auto (from the game)", "tmnf.exchange", "tmuf.exchange", "nations.tm-exchange.com",
+const char* const kSiteChoices[] = {"Auto (game)", "tmnf.exchange", "tmuf.exchange", "nations.tm-exchange.com",
                                     "sunrise.tm-exchange.com", "original.tm-exchange.com"};
 const char* const kMoods[] = {"Sunrise", "Day", "Sunset", "Night"};
 const char* const kRoutes[] = {"Single", "Multi", "Symmetric"};
 const char* const kLbTypes[] = {"Any", "Standard", "Classic", "Nadeo", "Uncompetitive", "Beta", "Star"};
-const char* const kFlagNames[] = {"Has a screenshot", "Featured", "Has a record", "Has replays", "Author's latest map", "By a supporter"};
+const char* const kFlagNames[] = {"Screenshot", "Featured", "Has a record", "Has replays", "Author's latest", "By a supporter"};
 
 std::string clockText(int seconds) {
     char b[32];
@@ -138,6 +139,9 @@ void timeRight(int ms, float rightX, const ImVec4& c) {
 
 ImFont* Plugin::titleFont() { return style_.title ? style_.title : ImGui::GetFont(); }
 
+// two columns of cards need about 2 x 340 px; below that the cards stack (popped-out or narrow menu)
+bool Plugin::stacked() const { return ImGui::GetContentRegionAvail().x < 680 * style_.scale; }
+
 void Plugin::ensureTexture(PreparedMap* m) {
     if (!m || m->tex || m->texTried || !m->thumb.ok()) return;
     m->texTried = true;
@@ -151,29 +155,30 @@ void Plugin::ensureTexture(PreparedMap* m) {
 
 // ------------------------------------------------------------------ stop
 
-// One confirm for the Run page and the HUD buttons: a fixed ID scope, so the button in any window opens
-// the same popup, which drawOverlay submits every frame.
+// One confirm for the Run page and the HUD buttons: the buttons only set a flag, drawOverlay opens and
+// submits the popup every frame in a fixed ID scope (independent of the window the button was in).
 static const ImGuiID kStopScope = 0x4C525354;  // "LRST"
 
+void Plugin::requestStop() {
+    // a run with progress asks first; one that has hardly begun just stops
+    const Session* s = run_.session();
+    bool progress = s && (!s->history().empty() || s->elapsedMs() > 60000);
+    if (progress) stopAsk_ = true;
+    else run_.stop();
+}
+
 void Plugin::stopButton(ImVec2 size) {
-    if (ImGui::Button("Stop", size)) {
-        // a run with progress asks first; one that has hardly begun just stops
-        const Session* s = run_.session();
-        bool progress = s && (!s->history().empty() || s->elapsedMs() > 60000);
-        if (progress) {
-            ImGui::PushOverrideID(kStopScope);
-            ImGui::OpenPopup("Stop run?");
-            ImGui::PopID();
-        } else {
-            run_.stop();
-        }
-    }
+    if (ImGui::Button("Stop", size)) requestStop();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("End the run and save it");
 }
 
 void Plugin::stopPopup() {
     const float sc = style_.scale;
     ImGui::PushOverrideID(kStopScope);
+    if (stopAsk_) {
+        stopAsk_ = false;
+        if (run_.active()) ImGui::OpenPopup("Stop run?");
+    }
     if (ImGui::BeginPopupModal("Stop run?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
         if (!run_.active()) ImGui::CloseCurrentPopup();  // ended by itself meanwhile
         ImGui::TextColored(style_.muted, "Results are saved.");
@@ -194,11 +199,20 @@ void Plugin::drawMenu() {
     style_ = host_.style();
     ui::setStyle(style_);
     const float sc = style_.scale;
-    drawHeader();
-    ImGui::BeginChild("##lr_nav", ImVec2(190 * sc, 0));
-    panels_.drawNavigation();
+    // the page's width decides the layout: docked or popped out, any size. Hosts with ui_metrics (ABI minor 4)
+    // report it (page_w, 0 before the first page); the ImGui region is the ground truth for drawing.
+    float pageW = ImGui::GetContentRegionAvail().x;
+    UiMetrics m;
+    if (host_.uiMetrics(&m) && m.pageW > 0 && m.pageW < pageW) pageW = m.pageW;
+    const float logical = pageW / sc;
+    const bool compact = logical < 800;    // header on two lines, narrower navigation
+    const bool iconsOnly = logical < 600;  // navigation: icons only
+    drawHeader(compact);
+    const float navW = iconsOnly ? 46 * sc : compact ? 156 * sc : 190 * sc;
+    ImGui::BeginChild("##lr_nav", ImVec2(navW, 0), 0, iconsOnly ? ImGuiWindowFlags_NoScrollbar : 0);
+    panels_.drawNavigation(iconsOnly);
     ImGui::EndChild();
-    ImGui::SameLine(0, 14 * sc);
+    ImGui::SameLine(0, (compact ? 10 : 14) * sc);
     ImGui::BeginChild("##lr_page", ImVec2(0, 0));
     panels_.drawCurrentPage();
     ImGui::EndChild();
@@ -230,50 +244,81 @@ void Plugin::siteBadges(const std::vector<Site>& sites, float size) {
     }
 }
 
-void Plugin::drawHeader() {
+// Wide: one line (title, version, notice chips; logos, site and game on the right), as long as it fits.
+// Compact or too narrow: the title alone, the rest as small chips on a second line that wrap.
+void Plugin::drawHeader(bool compact) {
     const float sc = style_.scale;
-    icon(Icon::Flag, ui::col(style_.accent), ImGui::GetTextLineHeight() * 1.2f);
+    const HostGame g = host_.game();
+    const std::vector<Site> sites = sourceSites(settings_, g);
+    const std::string game = host_.gameName();
+    const std::string host = sitesLabel(sites);
+    const bool experimental = isForever(g) || g == HostGame::Original;
+    const char* expTip = g == HostGame::Original ? "TM Original support is still experimental."
+                                                 : "TMNF/TMUF support is experimental; maps change only in menus.";
+    const bool paused = host_.isOnline() || !host_.actionsAllowed();
+    const char* version = LR_PLUGIN_VERSION;
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+    const float flag = ImGui::GetTextLineHeight() * 1.2f;
+
+    ImGui::PushFont(titleFont());
+    const float titleW = ImGui::CalcTextSize("LEGACY RANDOMIZER").x;
+    ImGui::PopFont();
+    float chipsW = ui::pillWidth(version) + sp;
+    if (experimental) chipsW += ui::pillWidth("Experimental") + sp;
+    if (paused) chipsW += ui::pillWidth("Paused online") + sp;
+    // the site / game chip on the right: logo(s), site(s), game
+    const float logo = ImGui::GetTextLineHeight() * 1.25f;
+    const float n = static_cast<float>(sites.size());
+    const float rightW = logo * n + 4 * sc * (n - 1) + ImGui::CalcTextSize((host + "   " + game).c_str()).x + 30 * sc;
+    const bool oneLine = !compact && flag + sp + titleW + sp + chipsW + 24 * sc + rightW <= avail;
+
+    icon(Icon::Flag, ui::col(style_.accent), flag);
     ImGui::SameLine();
     ImGui::PushFont(titleFont());
-    ImGui::TextColored(style_.text, "LEGACY RANDOMIZER");
+    ui::textFit("LEGACY RANDOMIZER", ImGui::GetContentRegionAvail().x, &style_.text);
     ImGui::PopFont();
-    ImGui::SameLine();
-    ImGui::TextColored(style_.muted, "v" LR_PLUGIN_VERSION);
-    HostGame g = host_.game();
-    if (isForever(g)) {
-        // Horizon on TMNF/TMUF is experimental: a small chip next to the version
+    if (!oneLine) ImGui::Dummy(ImVec2(0, 2 * sc));
+
+    // one line: the chips centred on the title's height
+    const float yOff = oneLine ? std::max(0.0f, (titleFont()->FontSize - ImGui::GetTextLineHeight() - 4 * sc) * 0.5f) : 0.0f;
+    auto next = [&] {
         ImGui::SameLine();
-        const char* t = "experimental on Forever";
-        ImVec2 p = ImGui::GetCursorScreenPos(), ts = ImGui::CalcTextSize(t);
-        float y = p.y + ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;
-        ImGui::GetWindowDrawList()->AddRect(ImVec2(p.x, y - 1 * sc), ImVec2(p.x + ts.x + 14 * sc, y + ts.y + 1 * sc), ui::col(style_.warn, 0.7f),
-                                            (ts.y + 2 * sc) * 0.5f, 0, 1.0f * sc);
-        ImGui::SetCursorScreenPos(ImVec2(p.x + 7 * sc, p.y));
-        ImGui::TextColored(style_.warn, "%s", t);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("The Horizon host's support for TMNF/TMUF is experimental. The randomizer keeps to the Competition "
-                              "Patch rules: maps are loaded and left only in the menus and on the end-race screen.");
+        if (yOff > 0) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + yOff);
+    };
+    auto chips = [&] {
+        next();
+        ui::pill(version, style_.muted, false, "Legacy Randomizer version");
+        if (experimental) {
+            next();
+            ui::pill("Experimental", style_.warn, true, expTip);
+        }
+        if (paused) {
+            next();
+            ui::pill("Paused online", style_.warn, false, "Net play: the randomizer does nothing.");
+        }
+    };
+    if (oneLine) {
+        chips();
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - rightW + 8 * sc);
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p.x - 8 * sc, p.y - 3 * sc), ImVec2(p.x + rightW - 8 * sc, p.y + logo + 3 * sc),
+                                                  IM_COL32(255, 255, 255, 12), 12 * sc);
+        siteBadges(sites, logo);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(host.c_str());
+        ImGui::SameLine();
+        ImGui::TextColored(g == HostGame::Unknown ? style_.bad : style_.muted, "%s", game.c_str());
+    } else {
+        // line 2: site(s) with logo, game, version, notices
+        for (size_t i = 0; i < sites.size(); ++i) {
+            if (i) ImGui::SameLine();
+            ui::pill(siteHost(sites[i]), style_.text2, false, "TMX site", logos_.texture(host_, sites[i]));
+        }
+        ImGui::SameLine();
+        ui::pill(game.c_str(), g == HostGame::Unknown ? style_.bad : style_.muted, false, "Game");
+        chips();
     }
-    std::vector<Site> sites = sourceSites(settings_, g);
-    std::string game = host_.gameName();
-    std::string host = sitesLabel(sites);
-    // the game / site chip on the right: logo(s), site(s), game
-    float logo = ImGui::GetTextLineHeight() * 1.25f;
-    const float n = static_cast<float>(sites.size());
-    float logos = logo * n + 4 * sc * (n - 1);
-    float w = logos + ImGui::CalcTextSize((host + "   " + game).c_str()).x + 30 * sc;
-    ImGui::SameLine(ImGui::GetContentRegionMax().x - w);
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(p.x - 8 * sc, p.y - 3 * sc), ImVec2(p.x + w - 8 * sc, p.y + logo + 3 * sc),
-                                              IM_COL32(255, 255, 255, 12), 12 * sc);
-    siteBadges(sites, logo);
-    ImGui::SameLine();
-    ImGui::TextUnformatted(host.c_str());
-    ImGui::SameLine();
-    ImGui::TextColored(g == HostGame::Unknown ? style_.bad : style_.muted, "%s", game.c_str());
-    if (g == HostGame::Original) ImGui::TextColored(style_.warn, "TM Original support is experimental.");
-    if (host_.isOnline() || !host_.actionsAllowed())
-        ImGui::TextColored(style_.warn, "Net play: the randomizer is paused and does nothing here.");
     ImGui::Dummy(ImVec2(0, 6 * sc));
 }
 
@@ -286,26 +331,30 @@ void Plugin::pageRun() {
     if (run_.active() && s) {
         ui::beginCard("Run in progress", Icon::Timer);
         panelTimer();
+        char b[32];
         ui::medalDot(kAuthor);
         ImGui::Text("AT %d", s->authorCount());
-        ImGui::SameLine(0, 16 * sc);
+        std::snprintf(b, sizeof b, "Gold %d", s->goldCount());
+        ui::flowNext(ImGui::CalcTextSize(b).x + ImGui::GetTextLineHeight(), 16 * sc);
         ui::medalDot(kGold);
-        ImGui::Text("Gold %d", s->goldCount());
-        ImGui::SameLine(0, 16 * sc);
-        ImGui::Text("Skips %d", s->skipCount());
-        ImGui::SameLine(0, 16 * sc);
+        ImGui::TextUnformatted(b);
+        std::snprintf(b, sizeof b, "Skips %d", s->skipCount());
+        ui::flowNext(ImGui::CalcTextSize(b).x, 16 * sc);
+        ImGui::TextUnformatted(b);
+        ui::flowNext(ImGui::CalcTextSize(phaseName(run_.phase())).x, 16 * sc);
         ImGui::TextColored(style_.muted, "%s", phaseName(run_.phase()));
         stopButton(ImVec2(120 * sc, 0));
         ui::endCard();
-        float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+        const bool stack = stacked();
+        float half = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
         ImGui::BeginGroup();
         ui::beginCard("Current map", Icon::Map, half);
         std::shared_ptr<PreparedMap> m = run_.displayMap();
         if (m) drawMapCard(m.get(), ImGui::GetContentRegionAvail().x, true);
-        else ImGui::TextColored(run_.fetchFailing() ? style_.bad : style_.muted, "%s", run_.fetchStatus().c_str());
+        else ui::textFit(run_.fetchStatus().c_str(), 0, run_.fetchFailing() ? &style_.bad : &style_.muted);
         ui::endCard();
         ImGui::EndGroup();
-        ImGui::SameLine(0, gap);
+        if (!stack) ImGui::SameLine(0, gap);
         ImGui::BeginGroup();
         ui::beginCard("Medals", Icon::Medal);
         panelMedals();
@@ -328,7 +377,8 @@ void Plugin::pageRun() {
     }
 
     const std::vector<Site> sites = sourceSites(settings_, host_.game());
-    const float colW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+    const bool stack = stacked();
+    const float colW = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
     ImGui::BeginGroup();
     ui::beginCard("Start a run", Icon::Play, colW);
     {
@@ -337,12 +387,27 @@ void Plugin::pageRun() {
         ImGui::SameLine(0, 12 * sc);
         ImGui::BeginGroup();
         ImGui::PushFont(titleFont());
-        ImGui::TextUnformatted(settings_.mode == Mode::RMC ? "Random Map Challenge" : settings_.mode == Mode::RMS ? "Random Map Survival"
-                                                                                                                 : "Free play");
+        ui::textFit(settings_.mode == Mode::RMC ? "Random Map Challenge" : settings_.mode == Mode::RMS ? "Random Map Survival" : "Free play");
         ImGui::PopFont();
-        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
-        ImGui::TextColored(style_.muted, "%s", settings_.summary(sites, host_.game()).c_str());
-        ImGui::PopTextWrapPos();
+        // the settings summary wraps at its " · " separators, never inside a word
+        std::string sum = settings_.summary(sites, host_.game());
+        const float wrapW = ImGui::GetContentRegionAvail().x;
+        std::string line;
+        size_t p = 0;
+        while (p <= sum.size()) {
+            size_t q = sum.find(" \xC2\xB7 ", p);
+            std::string part = sum.substr(p, q == std::string::npos ? std::string::npos : q - p);
+            std::string cand = line.empty() ? part : line + " \xC2\xB7 " + part;
+            if (!line.empty() && ImGui::CalcTextSize(cand.c_str()).x > wrapW) {
+                ui::textFit(line.c_str(), wrapW, &style_.muted);
+                line = part;
+            } else {
+                line = cand;
+            }
+            if (q == std::string::npos) break;
+            p = q + 4;
+        }
+        if (!line.empty()) ui::textFit(line.c_str(), wrapW, &style_.muted);
         ImGui::EndGroup();
     }
     ImGui::Dummy(ImVec2(0, 6 * sc));
@@ -356,19 +421,23 @@ void Plugin::pageRun() {
         startError.clear();
         if (!run_.start(&startError)) host_.log(LogWarn, "start: " + startError);
     }
-    if (blocked) ImGui::TextColored(style_.warn, "Not available in net play.");
-    else if (!startError.empty()) ImGui::TextColored(style_.bad, "%s", startError.c_str());
-    else ImGui::TextColored(style_.muted, "The first map starts from the main menu.");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip(blocked ? "Solo only: not in net play" : "The first map loads from the main menu");
+    if (blocked) ui::textFit("Solo only", 0, &style_.warn);
+    else if (!startError.empty()) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x);
+        ImGui::TextColored(style_.bad, "%s", startError.c_str());
+        ImGui::PopTextWrapPos();
+    }
     ui::endCard();
     ImGui::EndGroup();
     const float leftH = ImGui::GetItemRectSize().y;
 
-    ImGui::SameLine(0, gap);
+    if (!stack) ImGui::SameLine(0, gap);
     ImGui::BeginGroup();
     const float rightTop = ImGui::GetCursorScreenPos().y;
     ui::beginCard("Last run", Icon::History);
     if (history_.runs().empty()) {
-        ui::emptyState(Icon::Flag, "No run yet. Your results land here.");
+        ui::emptyState(Icon::Flag, "No runs yet");
     } else {
         const RunRecord& r = history_.runs().front();
         ImGui::PushFont(titleFont());
@@ -383,8 +452,11 @@ void Plugin::pageRun() {
         std::string when = r.started;
         for (char& c : when)
             if (c == 'T') c = ' ';
-        ImGui::TextColored(style_.text2, "%s, goal %s", modeTitle(r.mode), goalTitle(Session::goalFromKey(r.goal.c_str())));
-        ImGui::TextColored(style_.muted, "%d maps in %s, %s", static_cast<int>(r.maps.size()), formatClock(r.elapsedMs).c_str(), when.c_str());
+        char b[160];
+        std::snprintf(b, sizeof b, "%s, goal %s", modeTitle(r.mode), goalTitle(Session::goalFromKey(r.goal.c_str())));
+        ui::textFit(b, 0, &style_.text2);
+        std::snprintf(b, sizeof b, "%d maps in %s, %s", static_cast<int>(r.maps.size()), formatClock(r.elapsedMs).c_str(), when.c_str());
+        ui::textFit(b, 0, &style_.muted);
         // the last maps, newest first, as a short strip
         float w = ImGui::GetContentRegionAvail().x;
         int shown = 0;
@@ -401,7 +473,7 @@ void Plugin::pageRun() {
             panels_.select("history");
         }
     }
-    {
+    if (!stack) {
         // as tall as the start card (bottom padding 12 and the 4 px endCard adds)
         float want = rightTop + leftH - 24 * sc;
         float y = ImGui::GetCursorScreenPos().y;
@@ -427,9 +499,9 @@ void Plugin::pageRun() {
                 std::string when = r.started;
                 for (char& c : when)
                     if (c == 'T') c = ' ';
-                ImGui::TextColored(style_.text2, "%s", when.c_str());
+                ui::textFit(when.c_str(), 0, &style_.text2);
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(modeTitle(r.mode));
+                ui::textFit(modeTitle(r.mode));
                 int vals[] = {r.authors, r.golds, static_cast<int>(r.maps.size())};
                 for (int v : vals) {
                     ImGui::TableNextColumn();
@@ -442,23 +514,22 @@ void Plugin::pageRun() {
         }
         ui::endCard();
     } else {
-        ui::beginCard("How a run goes", Icon::Info);
-        struct Step { Icon ic; const char* title; const char* line; };
+        ui::beginCard("How it works", Icon::Info);
+        struct Step { Icon ic; const char* title; const char* tip; };
         const Step steps[] = {
-            {Icon::Filter, "Pick the maps", "Filters and Rules: site, length, environment, goal medal."},
-            {Icon::Play, "Start", "The first map loads from the main menu; the next one downloads while you drive."},
-            {Icon::Medal, "Reach the goal", "The next map follows by itself. Skip a broken map, gold skip on goal Author."},
+            {Icon::Filter, "1  Pick maps", "Filters and Rules: site, length, goal."},
+            {Icon::Play, "2  Start", "Loads from the main menu."},
+            {Icon::Medal, "3  Reach the goal", "Then the next map follows."},
         };
         float w3 = (ImGui::GetContentRegionAvail().x - gap * 2) / 3.0f;
         for (int i = 0; i < 3; ++i) {
             if (i) ImGui::SameLine(0, gap);
             ImGui::BeginGroup();
             icon(steps[i].ic, ui::col(style_.text2), ImGui::GetTextLineHeight() * 1.4f);
-            ImGui::TextUnformatted(steps[i].title);
-            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w3);
-            ImGui::TextColored(style_.muted, "%s", steps[i].line);
-            ImGui::PopTextWrapPos();
+            ui::textFit(steps[i].title, w3);
+            ImGui::Dummy(ImVec2(w3, 0));
             ImGui::EndGroup();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", steps[i].tip);
         }
         ui::endCard();
     }
@@ -470,16 +541,15 @@ void Plugin::pageFilters() {
     const HostGame g = host_.game();
     const std::vector<Site> sites = sourceSites(settings_, g);
     const Site site = sites[0];
-    const float colW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+    const bool stack = stacked();
+    const float colW = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
 
     ImGui::BeginGroup();
     ui::beginCard("Source", Icon::Map, colW);
     if (isForever(g)) {
         // Forever: the game's own exchange, the other one, or both (a site per map)
-        ui::fieldLabel("TMX source", g == HostGame::Tmnf
-                                         ? "TMNF plays Stadium maps only: from tmuf.exchange it gets Stadium maps driven with the "
-                                           "Stadium car. Both: each map comes from one of the two sites."
-                                         : "TMUF plays every environment. tmnf.exchange adds its Stadium maps as a second source.");
+        ui::fieldLabel("TMX source", g == HostGame::Tmnf ? "TMNF drives Stadium only; Both mixes the two sites."
+                                                         : "tmnf.exchange adds its Stadium maps.");
         siteBadges(sites, ImGui::GetFrameHeight());
         ImGui::SameLine();
         if (g == HostGame::Tmnf) {
@@ -497,13 +567,10 @@ void Plugin::pageFilters() {
                 markDirty();
             }
         }
-        if (sites.size() > 1 &&
-            ui::switchRow("Even site mix", &settings_.evenSites,
-                          "Off: a coin flip picks the site of each map (50/50). On: the site with fewer maps so far goes next, so "
-                          "the run stays even. Past runs are told apart per site and TMX id."))
+        if (sites.size() > 1 && ui::switchRow("Even site mix", &settings_.evenSites, "On: the site with fewer maps goes next."))
             markDirty();
     } else {
-        ui::fieldLabel("TMX site", "Auto takes the TMX site of the game you play: ESWC nations, Sunrise sunrise, Original original.");
+        ui::fieldLabel("TMX site", "Auto: the TMX site of your game.");
         siteBadge(site, ImGui::GetFrameHeight());
         ImGui::SameLine();
         int sc0 = static_cast<int>(settings_.site);
@@ -516,8 +583,7 @@ void Plugin::pageFilters() {
     ui::endCard();
 
     ui::beginCard("Length and environment", Icon::Timer, colW);
-    ui::fieldLabel("Author time", "Drag, or type m:ss, m:ss.mmm or h:mm:ss. Empty = any. The slider goes to 10:00; typed times "
-                                  "can go beyond (the slider then sits at its end, the typed time counts).");
+    ui::fieldLabel("Author time", "Drag, or type m:ss (also past 10:00); empty = any.");
     {
         const float fw = 84 * sc, sp = ImGui::GetStyle().ItemSpacing.x;
         bool ch = ui::durationInput("atmin", &settings_.atMinMs, "min", fw);
@@ -527,11 +593,11 @@ void Plugin::pageFilters() {
         ch |= ui::durationInput("atmax", &settings_.atMaxMs, "max", fw);
         if (ch) markDirty();
         if (settings_.atMinMs > 0 && settings_.atMaxMs > 0 && settings_.atMinMs > settings_.atMaxMs)
-            ImGui::TextColored(style_.warn, "The minimum is above the maximum: no map can match.");
+            ui::textFit("Min above max", 0, &style_.warn);
     }
     const int* envs = nullptr;
     int nEnv = sourceEnvironments(sites, g, &envs);
-    ui::fieldLabel("Environments", nEnv > 1 ? "None selected = all. With several, one environment is picked first for each map (evenly)." : nullptr);
+    ui::fieldLabel("Environments", nEnv > 1 ? "None = all; several are picked evenly." : nullptr);
     if (nEnv > 1) {
         for (int i = 0; i < nEnv; ++i) {
             if (i) ImGui::SameLine();
@@ -542,8 +608,9 @@ void Plugin::pageFilters() {
             }
         }
     } else {
-        if (g == HostGame::Tmnf) ImGui::TextColored(style_.text2, "Stadium only: TMNF plays Stadium maps");
-        else ImGui::TextColored(style_.text2, "Stadium only on %s", sitesLabel(sites).c_str());
+        ui::textFit("Stadium only", 0, &style_.text2);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", g == HostGame::Tmnf ? "TMNF plays Stadium maps." : ("Only Stadium on " + sitesLabel(sites)).c_str());
     }
     ui::fieldLabel("Difficulty");
     for (int i = 0; i < 5; ++i) {
@@ -556,10 +623,10 @@ void Plugin::pageFilters() {
     ui::endCard();
     ImGui::EndGroup();
 
-    ImGui::SameLine(0, gap);
+    if (!stack) ImGui::SameLine(0, gap);
     ImGui::BeginGroup();
     ui::beginCard("Look", Icon::Sun);
-    ui::fieldLabel("Mood", "None selected = any mood.");
+    ui::fieldLabel("Mood", "None = any.");
     static const Icon moodIcons[] = {Icon::Sunrise, Icon::Sun, Icon::Sunset, Icon::Moon};
     for (int i = 0; i < 4; ++i) {
         if (i) ImGui::SameLine();
@@ -588,13 +655,12 @@ void Plugin::pageFilters() {
     ui::endCard();
 
     ui::beginCard("Map checks", Icon::Stop);
-    if (ui::switchRow("Skip Unlimiter maps", &settings_.excludeUnlimiter, "Maps built with the Unlimiter mod need it to load.")) markDirty();
+    if (ui::switchRow("Skip Unlimiter maps", &settings_.excludeUnlimiter, "They need the Unlimiter mod to load.")) markDirty();
     bool needAt = settings_.goal == Goal::Author;
     bool noAt = !(settings_.requireAuthorTime || needAt);
     bool skipNoAt = !noAt;
     ImGui::BeginDisabled(needAt);
-    if (ui::switchRow(needAt ? "Skip maps without an author time (goal Author)" : "Skip maps without an author time", &skipNoAt,
-                      "Always on with the goal Author: without an author time the goal can't be reached.")) {
+    if (ui::switchRow("Need author time", &skipNoAt, needAt ? "Always on with goal Author." : "Skip maps without an author time.")) {
         settings_.requireAuthorTime = skipNoAt;
         markDirty();
     }
@@ -602,9 +668,8 @@ void Plugin::pageFilters() {
     ui::endCard();
     ImGui::EndGroup();
 
-    static bool advanced = false;
-    ui::disclosure("Advanced TMX search", &advanced);
-    if (advanced) {
+    ui::disclosure("Advanced TMX search", &advFilters_);
+    if (advFilters_) {
         ui::beginCard("TMX search", Icon::Sliders);
         if (ImGui::BeginTable("##adv", 2, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::TableNextColumn();
@@ -612,7 +677,7 @@ void Plugin::pageFilters() {
             ImGui::SetNextItemWidth(-FLT_MIN);
             if (inputString("##name", settings_.name, "part of the map name")) markDirty();
             ImGui::TableNextColumn();
-            ui::fieldLabel("Author", "The uploader's exact name.");
+            ui::fieldLabel("Author", "Exact uploader name.");
             ImGui::SetNextItemWidth(-FLT_MIN);
             if (inputString("##author", settings_.author, "uploader")) markDirty();
             ImGui::TableNextColumn();
@@ -632,7 +697,7 @@ void Plugin::pageFilters() {
             }
             ImGui::TableNextColumn();
             if (site == Site::TMUF) {
-                ui::fieldLabel("Vehicle", "TMUF only: maps driven with this environment's car (environment mixes).");
+                ui::fieldLabel("Vehicle", "TMUF only: maps driven with this car.");
                 const char* cars[] = {"Any", "Snow", "Desert", "Rally", "Island", "Coast", "Bay", "Stadium"};
                 if (ui::combo("##vehicle", &settings_.vehicle, cars, 8)) markDirty();
             }
@@ -641,7 +706,7 @@ void Plugin::pageFilters() {
         ImGui::Dummy(ImVec2(0, 4 * sc));
         for (int i = 0; i < FlagCount; ++i)
             if (i != FlagReplays && ui::triState(kFlagNames[i], &settings_.flags[i])) markDirty();
-        ImGui::TextColored(style_.muted, "Map type: Race only. Stunts, Platform and Puzzle are planned.");
+        ui::fieldLabel("Race maps only", "Stunts, Platform and Puzzle are planned.");
         ui::endCard();
     }
 }
@@ -649,19 +714,19 @@ void Plugin::pageFilters() {
 void Plugin::pageRules() {
     const float sc = style_.scale;
     const float gap = 12 * sc;
-    const float colW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+    const bool stack = stacked();
+    const float colW = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
     ImGui::BeginGroup();
     ui::beginCard("Mode", Icon::Timer, colW);
     static const char* const modes[] = {"Challenge", "Survival", "Free play"};
+    static const char* const modeTips[] = {"Most goal medals before the time runs out.", "Medals add time, skips cost time.",
+                                           "No timer; medals still count."};
     int mode = static_cast<int>(settings_.mode);
-    if (ui::segmented("mode", &mode, modes, 3, -1)) {
+    if (ui::segmented("mode", &mode, modes, 3, -1, modeTips)) {
         settings_.mode = static_cast<Mode>(mode);
         markDirty();
     }
-    const char* modeLine = settings_.mode == Mode::RMC ? "As many goal medals as possible before the timer runs out."
-                         : settings_.mode == Mode::RMS ? "Medals add time, skips take time. The run ends at 0."
-                                                       : "No timer. Medals and skips are still counted.";
-    ImGui::TextColored(style_.muted, "%s", modeLine);
+    if (settings_.mode == Mode::FreePlay) ui::textFit("No timer", 0, &style_.muted);
     if (settings_.mode == Mode::RMC) {
         ui::fieldLabel("Time limit");
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -673,7 +738,7 @@ void Plugin::pageRules() {
     }
     ui::endCard();
 
-    ui::beginCard("Goal", Icon::Medal, colW);
+    ui::beginCard("Goal", Icon::Medal, colW, "The medal that completes a map; better ones count too.");
     static const char* const goals[] = {"Author", "Gold", "Silver", "Bronze", "Finished"};
     static const Medal goalMedals[] = {Medal::Author, Medal::Gold, Medal::Silver, Medal::Bronze, Medal::None};
     int goal = static_cast<int>(settings_.goal);
@@ -685,7 +750,6 @@ void Plugin::pageRules() {
             markDirty();
         }
     }
-    ImGui::TextColored(style_.muted, "The medal that completes a map. A better medal counts too.");
     ui::endCard();
 
     ui::beginCard("Skips", Icon::Skip, colW);
@@ -695,36 +759,30 @@ void Plugin::pageRules() {
         markDirty();
     }
     if (!unlimited) {
-        ui::fieldLabel("Free skips", "A free skip gives back the time spent on that map (for broken maps).");
+        ui::fieldLabel("Free skips", "Gives back the time spent on that map.");
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::SliderInt("##free", &settings_.freeSkips, 0, 10, "%d", ImGuiSliderFlags_AlwaysClamp)) markDirty();
     }
     ImGui::BeginDisabled(settings_.goal != Goal::Author);
-    if (ui::switchRow("Gold skip", &settings_.goldSkip, "Goal Author only: skip a map you have gold on; it counts as a gold medal."))
+    if (ui::switchRow("Gold skip", &settings_.goldSkip, "Goal Author only: skip with gold, counts as gold."))
         markDirty();
     ImGui::EndDisabled();
     ui::endCard();
     ImGui::EndGroup();
 
-    ImGui::SameLine(0, gap);
+    if (!stack) ImGui::SameLine(0, gap);
     ImGui::BeginGroup();
     ui::beginCard("Map choice", Icon::Filter);
-    if (ui::switchRow("Equal environment distribution", &settings_.equalEnvironments,
-                      "Pick the environment first (evenly), then a map of it. Without it, environments come as often as TMX has maps of them."))
+    if (ui::switchRow("Even environments", &settings_.equalEnvironments, "Environment first (evenly), then a map of it."))
         markDirty();
-    if (ui::switchRow("Exclude maps from past runs", &settings_.excludePlayed, "Every map in your saved runs on the same TMX site."))
-        markDirty();
-    if (ui::switchRow("Avoid maps you skipped", &settings_.avoidSkipped, "Maps you skipped in saved runs.")) markDirty();
-    if (ui::switchRow("Never a map you finished before", &settings_.excludeFinished,
-                      "Reads the map of every replay in the game's Autosaves folder once and keeps a cache. A map with an "
-                      "autosave was finished before."))
+    if (ui::switchRow("Skip played maps", &settings_.excludePlayed, "Maps in your saved runs on the same site.")) markDirty();
+    if (ui::switchRow("Avoid skipped maps", &settings_.avoidSkipped, "Maps you skipped in saved runs.")) markDirty();
+    if (ui::switchRow("Skip finished maps", &settings_.excludeFinished, "Maps with a replay in the game's Autosaves."))
         markDirty();
     ui::endCard();
 
     ui::beginCard("Between maps", Icon::Flag);
-    if (ui::switchRow("Next map automatically after a goal", &settings_.autoAdvance,
-                      "On TMNF/TMUF the map is only left from the end-race screen (Competition Patch rule); a skip during a run "
-                      "there asks you to quit the map yourself."))
+    if (ui::switchRow("Auto next map", &settings_.autoAdvance, "After a goal. TMNF/TMUF: from the end-race screen only."))
         markDirty();
     ImGui::BeginDisabled(!settings_.autoAdvance);
     ui::fieldLabel("Delay");
@@ -734,10 +792,7 @@ void Plugin::pageRules() {
     bool canSave = host_.canSaveReplay();
     ImGui::BeginDisabled(!canSave);
     bool rs = settings_.replayAutosave && canSave;
-    if (ui::switchRow("Save the replay of every goal medal", &rs,
-                      canSave ? "Saved in the game's Replays folder; the run file lists them."
-                              : "Not available yet: the Horizon host can't save replays for plugins (host 0.1.0). Replays saved "
-                                "by ESWC Autosave are still listed in the run file.")) {
+    if (ui::switchRow("Save goal replays", &rs, canSave ? "Into the game's Replays folder." : "Not supported by this Horizon Client yet.")) {
         settings_.replayAutosave = rs;
         markDirty();
     }
@@ -745,34 +800,33 @@ void Plugin::pageRules() {
     ui::endCard();
     ImGui::EndGroup();
 
-    static bool advanced = false;
-    ui::disclosure("Advanced rules", &advanced);
-    if (advanced) {
-        float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+    ui::disclosure("Advanced rules", &advRules_);
+    if (advRules_) {
+        float half = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
         ImGui::BeginGroup();
         ui::beginCard("Survival numbers", Icon::Sliders, half);
-        ui::fieldLabel("Bonus per author medal");
+        ui::fieldLabel("Author bonus");
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::SliderInt("##ab", &settings_.rmsAuthorBonusS, 0, 600, "%d s")) markDirty();
-        ui::fieldLabel("Bonus per gold / gold skip");
+        ui::fieldLabel("Gold bonus", "Gold medal or gold skip.");
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::SliderInt("##gb", &settings_.rmsGoldBonusS, 0, 600, "%d s")) markDirty();
-        ui::fieldLabel("Penalty per skip");
+        ui::fieldLabel("Skip penalty");
         ImGui::SetNextItemWidth(-FLT_MIN);
         if (ImGui::SliderInt("##sp", &settings_.rmsSkipPenaltyS, 0, 600, "%d s")) markDirty();
         ui::endCard();
         ImGui::EndGroup();
-        ImGui::SameLine(0, gap);
+        if (!stack) ImGui::SameLine(0, gap);
         ImGui::BeginGroup();
         ui::beginCard("Banned maps", Icon::Stop);
-        ui::fieldLabel("TMX ids", "These TMX ids are never picked (on any site). Separate them with commas or spaces.");
+        ui::fieldLabel("TMX ids", "Never picked, on any site. Commas or spaces.");
         char buf[2048];
         std::snprintf(buf, sizeof buf, "%s", settings_.banned.c_str());
         if (ImGui::InputTextMultiline("##banned", buf, sizeof buf, ImVec2(-FLT_MIN, 70 * sc))) {
             settings_.banned = buf;
             markDirty();
         }
-        ImGui::TextColored(style_.muted, "%d maps banned", static_cast<int>(parseIdList(settings_.banned).size()));
+        ImGui::TextColored(style_.muted, "%d banned", static_cast<int>(parseIdList(settings_.banned).size()));
         ui::endCard();
         ImGui::EndGroup();
     }
@@ -781,24 +835,23 @@ void Plugin::pageRules() {
 void Plugin::pageLayout() {
     const float sc = style_.scale;
     const float gap = 12 * sc;
-    const float colW = (ImGui::GetContentRegionAvail().x - gap) * 0.42f;
+    const bool stack = stacked();
+    const float colW = stack ? 0.0f : (ImGui::GetContentRegionAvail().x - gap) * 0.42f;
     ImGui::BeginGroup();
     ui::beginCard("HUD", Icon::Layout, colW);
-    if (ui::switchRow("Show the HUD during a run", &settings_.hudVisible)) markDirty();
-    ui::fieldLabel("Layout", "Split: one panel per corner (timer, map, medals, controls, session). Compact card: everything in one card.");
+    if (ui::switchRow("Show HUD", &settings_.hudVisible, "During a run.")) markDirty();
+    ui::fieldLabel("Layout");
     static const char* const presets[] = {"Compact card", "Split"};
+    static const char* const presetTips[] = {"Everything in one card.", "A panel per corner."};
     int preset = static_cast<int>(settings_.hudPreset);
-    if (ui::segmented("preset", &preset, presets, 2, -1)) {
+    if (ui::segmented("preset", &preset, presets, 2, -1, presetTips)) {
         settings_.hudPreset = static_cast<HudPreset>(preset);
         if (settings_.hudPreset == HudPreset::Split) panels_.applySplitPreset();
         else panels_.applyCompactPreset();
         markDirty();
     }
     ImGui::Dummy(ImVec2(0, 2 * sc));
-    if (ui::switchRow("Edit layout", &settings_.layoutEdit,
-                      "While the menu is open, the panels get an outline and can be moved and resized. Places are saved as a "
-                      "share of the screen. Off: no title bars, fixed, and clicks go through to the game except on buttons."))
-        markDirty();
+    if (ui::switchRow("Edit layout", &settings_.layoutEdit, "Move and resize the panels while the menu is open.")) markDirty();
     if (ImGui::Button("Reset layout")) {
         if (settings_.hudPreset == HudPreset::Split) panels_.applySplitPreset();
         else panels_.applyCompactPreset();
@@ -807,33 +860,36 @@ void Plugin::pageLayout() {
 
     ui::beginCard("Thumbnail", Icon::Map, colW);
     static const char* const tsrc[] = {"TMX screenshot", "Map file", "Off"};
+    static const char* const tsrcTips[] = {"One extra request per map.", "TMNF/TMUF maps carry one, ESWC maps don't.", nullptr};
     int ts = static_cast<int>(settings_.thumbSource);
-    if (ui::segmented("thumb", &ts, tsrc, 3, -1)) {
+    if (ui::segmented("thumb", &ts, tsrc, 3, -1, tsrcTips)) {
         settings_.thumbSource = static_cast<ThumbSource>(ts);
         markDirty();
     }
-    ImGui::TextColored(style_.muted, ts == 0 ? "One extra request per map; the map file's own as fallback."
-                                    : ts == 1 ? "TMNF/TMUF maps carry one, ESWC maps don't." : "No pictures.");
-    if (!host_.canCreateTextures()) ImGui::TextColored(style_.warn, "This host can't create textures: no thumbnails.");
+    if (!host_.canCreateTextures()) {
+        ui::textFit("Not supported", 0, &style_.warn);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("This host can't create textures.");
+    }
     ui::endCard();
 
-    ui::beginCard("Hotkeys", Icon::Controls, colW);
+    ui::beginCard("Hotkeys", Icon::Controls, colW, "Change them in the Horizon menu, Hotkeys.");
     struct Hk { int h; const char* what; };
-    const Hk hks[] = {{hkSkip_, "Skip map"}, {hkGoldSkip_, "Gold skip"}, {hkHud_, "Show / hide HUD"}, {hkNext_, "Next map after a goal"}};
+    const Hk hks[] = {{hkSkip_, "Skip map"}, {hkGoldSkip_, "Gold skip"}, {hkHud_, "Toggle HUD"}, {hkNext_, "Next map"}};
     for (const Hk& k : hks) {
         std::string t = hotkey(k.h);
         float x0 = ImGui::GetCursorPosX();
-        ImGui::TextUnformatted(k.what);
+        const char* key = t.empty() ? "none" : t.c_str();
+        float keyW = ImGui::CalcTextSize(key).x;
+        ui::textFit(k.what, ImGui::GetContentRegionAvail().x - keyW - ImGui::GetStyle().ItemSpacing.x);
         ImVec4 c = t.empty() ? style_.muted : style_.text2;
-        ui::textRight(t.empty() ? "none" : t.c_str(), x0 + ImGui::GetContentRegionAvail().x, &c);
+        ui::textRight(key, x0 + ImGui::GetContentRegionAvail().x, &c);
     }
-    ImGui::TextColored(style_.muted, "Change keys in the Horizon menu under Hotkeys.");
     ui::endCard();
     ImGui::EndGroup();
 
-    ImGui::SameLine(0, gap);
+    if (!stack) ImGui::SameLine(0, gap);
     ImGui::BeginGroup();
-    ui::beginCard("Panels", Icon::Card);
+    ui::beginCard("Panels", Icon::Card, 0, "During a run the HUD is the panels shown here.");
     int n = 0;
     const PanelDef* defs = Panels::table(&n);
     if (ImGui::BeginTable("##lr_panels", 4, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX)) {
@@ -852,7 +908,7 @@ void Plugin::pageLayout() {
             ImGui::AlignTextToFramePadding();
             icon(d.icon, ui::col(style_.text2));
             ImGui::SameLine();
-            ImGui::TextUnformatted(d.title);
+            ui::textFit(d.title);
             ImGui::TableNextColumn();
             bool shown = w.detached && w.keepOpen;
             if (ui::toggle("##show", &shown)) {
@@ -869,7 +925,8 @@ void Plugin::pageLayout() {
             if (ImGui::SliderInt("##op", &w.opacity, 20, 100, "%d%%")) panels_.markDirty();
             ImGui::TableNextColumn();
             if (w.detached) {
-                if (ImGui::SmallButton("Back to the menu")) panels_.attach(d);
+                if (ImGui::SmallButton("Dock")) panels_.attach(d);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to the menu");
             } else if (ImGui::SmallButton("Pop out")) {
                 panels_.detach(d);
             }
@@ -877,7 +934,6 @@ void Plugin::pageLayout() {
         }
         ImGui::EndTable();
     }
-    ImGui::TextColored(style_.muted, "During a run the HUD is the panels that are shown here.");
     ui::endCard();
     ImGui::EndGroup();
 }
@@ -892,20 +948,23 @@ void Plugin::pageHistory() {
     ImGui::TextColored(style_.muted, "%d runs", static_cast<int>(runs.size()));
     ui::infoTip(("Saved in " + history_.runsFolder()).c_str());
     if (runs.empty()) {
-        ImGui::TextColored(style_.muted, "No saved runs yet. Every finished run is saved here.");
+        ui::emptyState(Icon::History, "No runs yet");
         return;
     }
+    // narrow: without the Game and Skips columns
+    const bool narrow = stacked();
     float listH = ImGui::GetContentRegionAvail().y * (histSel_ >= 0 ? 0.32f : 1.0f);
+    if (histSel_ >= 0 && listH < 120 * style_.scale) listH = 120 * style_.scale;
     ImGuiTableFlags f = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY |
                         ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
-    if (ImGui::BeginTable("##lr_runs", 7, f, ImVec2(0, listH))) {
+    if (ImGui::BeginTable("##lr_runs", narrow ? 5 : 7, f, ImVec2(0, listH))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Started", ImGuiTableColumnFlags_WidthStretch, 2.0f);
-        ImGui::TableSetupColumn("Game", ImGuiTableColumnFlags_WidthStretch, 1.8f);
+        if (!narrow) ImGui::TableSetupColumn("Game", ImGuiTableColumnFlags_WidthStretch, 1.8f);
         ImGui::TableSetupColumn("Mode", ImGuiTableColumnFlags_WidthStretch, 2.4f);
         ImGui::TableSetupColumn("AT", ImGuiTableColumnFlags_WidthStretch, 0.5f);
         ImGui::TableSetupColumn("Gold", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-        ImGui::TableSetupColumn("Skips", ImGuiTableColumnFlags_WidthStretch, 0.5f);
+        if (!narrow) ImGui::TableSetupColumn("Skips", ImGuiTableColumnFlags_WidthStretch, 0.5f);
         ImGui::TableSetupColumn("Maps", ImGuiTableColumnFlags_WidthStretch, 0.5f);
         ImGui::TableHeadersRow();
         for (int i = 0; i < static_cast<int>(runs.size()); ++i) {
@@ -916,14 +975,23 @@ void Plugin::pageHistory() {
             std::string when = r.started;
             for (char& c : when)
                 if (c == 'T') c = ' ';
-            if (ImGui::Selectable(when.c_str(), histSel_ == i, ImGuiSelectableFlags_SpanAllColumns)) histSel_ = histSel_ == i ? -1 : i;
+            std::string whenFit = ui::ellipsize(when.c_str(), ImGui::GetContentRegionAvail().x);
+            if (ImGui::Selectable(whenFit.c_str(), histSel_ == i, ImGuiSelectableFlags_SpanAllColumns)) histSel_ = histSel_ == i ? -1 : i;
             ImGui::PopID();
+            if (!narrow) {
+                ImGui::TableNextColumn();
+                ui::textFit(r.game.c_str());
+            }
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(r.game.c_str());
-            ImGui::TableNextColumn();
-            ImGui::Text("%s, %s", modeTitle(r.mode), goalTitle(Session::goalFromKey(r.goal.c_str())));
+            char mb[96];
+            std::snprintf(mb, sizeof mb, "%s, %s", narrow ? (r.mode == "rms" ? "Survival" : r.mode == "free" ? "Free play" : "Challenge")
+                                                          : modeTitle(r.mode),
+                          goalTitle(Session::goalFromKey(r.goal.c_str())));
+            ui::textFit(mb);
             int vals[] = {r.authors, r.golds, r.skips, static_cast<int>(r.maps.size())};
-            for (int v : vals) {
+            for (int k = 0; k < 4; ++k) {
+                if (narrow && k == 2) continue;
+                int v = vals[k];
                 ImGui::TableNextColumn();
                 char b[16];
                 std::snprintf(b, sizeof b, "%d", v);
@@ -941,23 +1009,33 @@ void Plugin::pageHistory() {
 }
 
 void Plugin::pageAbout() {
+    // label / value rows, the value cut with an ellipsis (full text on hover)
+    auto row = [&](const char* label, const char* value, const char* tip = nullptr, const ImVec4* vc = nullptr) {
+        const float lw = std::min(120 * style_.scale, ImGui::GetContentRegionAvail().x * 0.4f);
+        float x0 = ImGui::GetCursorPosX();
+        ui::textFit(label, lw - 8 * style_.scale, &style_.muted);
+        ImGui::SameLine(x0 + lw);
+        ui::textFit(value, ImGui::GetContentRegionAvail().x - (tip ? ImGui::GetTextLineHeight() : 0.0f), vc ? vc : &style_.text2);
+        if (tip) ui::infoTip(tip);
+    };
     ui::beginCard("Legacy Randomizer", Icon::Info);
-    ImGui::PushStyleColor(ImGuiCol_Text, style_.text2);
-    ImGui::TextWrapped("Random maps from TrackMania Exchange inside the game: Random Map Challenge, Random Map Survival and "
-                       "free play. The next map downloads while you drive the current one; every run is saved as a JSON file.");
-    ImGui::Spacing();
-    ImGui::TextWrapped("It never changes physics, timing or replays and does nothing in net play. On TMNF/TMUF it only acts in "
-                       "the menus and on the end-race screen (Competition Patch 2.0).");
-    ImGui::Spacing();
-    ImGui::TextWrapped("TMNF and TMUF are experimental, because the Horizon host's support for Forever is. There the maps come "
-                       "from tmnf.exchange, tmuf.exchange or both (Filters > TMX source).");
-    ImGui::PopStyleColor();
-    ImGui::TextColored(style_.muted, "Version " LR_PLUGIN_VERSION ", MIT licence. Map data and screenshots: TMX. Rules after RandomizerTMF.");
+    row("Modes", "Challenge, Survival, Free play");
+    row("Maps", "TrackMania Exchange", "The next map downloads while you drive.");
+    row("Net play", "Off", "Does nothing online.", &style_.ok);
+    row("Physics", "Untouched", "Never changes physics, timing or replays.");
+    if (isForever(host_.game()) || host_.game() == HostGame::Original)
+        row("This game", "Experimental", isForever(host_.game()) ? "Maps change only in menus (Competition Patch)." : nullptr, &style_.warn);
+    row("Version", LR_PLUGIN_VERSION);
+    row("Licence", "MIT");
+    row("Credits", "TMX, RandomizerTMF", "Map data and screenshots: TMX. Rules after RandomizerTMF.");
     ui::endCard();
     ui::beginCard("Files", Icon::List);
-    ImGui::TextColored(style_.muted, "Data folder");
-    ImGui::TextUnformatted(host_.dataFolder().c_str());
-    ImGui::TextColored(style_.muted, "Saved runs: %d", static_cast<int>(history_.runs().size()));
+    const std::string data = host_.dataFolder();
+    row("Data folder", data.c_str());
+    if (ImGui::SmallButton("Copy path")) ImGui::SetClipboardText(data.c_str());
+    char n[32];
+    std::snprintf(n, sizeof n, "%d", static_cast<int>(history_.runs().size()));
+    row("Saved runs", n);
     ui::endCard();
 }
 
@@ -967,15 +1045,17 @@ void Plugin::drawMapsTable(const RunRecord& r, const char* id, float height) {
     ImGuiTableFlags f = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp |
                         ImGuiTableFlags_PadOuterX;
     if (height > 0) f |= ImGuiTableFlags_ScrollY;
-    if (!ImGui::BeginTable(id, 7, f, ImVec2(0, height))) return;
+    // narrow: without the Author and TMX columns
+    const bool narrow = stacked();
+    if (!ImGui::BeginTable(id, narrow ? 5 : 7, f, ImVec2(0, height))) return;
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed);
     ImGui::TableSetupColumn("Map", ImGuiTableColumnFlags_WidthStretch, 3.0f);
-    ImGui::TableSetupColumn("Author", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+    if (!narrow) ImGui::TableSetupColumn("Author", ImGuiTableColumnFlags_WidthStretch, 1.6f);
     ImGui::TableSetupColumn("Result", ImGuiTableColumnFlags_WidthStretch, 1.6f);
     ImGui::TableSetupColumn("Best", ImGuiTableColumnFlags_WidthStretch, 1.0f);
     ImGui::TableSetupColumn("On map", ImGuiTableColumnFlags_WidthStretch, 0.9f);
-    ImGui::TableSetupColumn("TMX", ImGuiTableColumnFlags_WidthStretch, 0.9f);
+    if (!narrow) ImGui::TableSetupColumn("TMX", ImGuiTableColumnFlags_WidthStretch, 0.9f);
     ImGui::TableHeadersRow();
     for (size_t i = 0; i < r.maps.size(); ++i) {
         const RunMapRecord& m = r.maps[i];
@@ -986,11 +1066,13 @@ void Plugin::drawMapsTable(const RunRecord& r, const char* id, float height) {
         TmTextStyle ts;
         ts.maxWidth = ImGui::GetContentRegionAvail().x;
         tmText(m.name, ts);
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(m.author.c_str());
+        if (!narrow) {
+            ImGui::TableNextColumn();
+            ui::textFit(m.author.c_str());
+        }
         ImGui::TableNextColumn();
         ui::medalDot(medalColor(medalFromKey(m.medal)));
-        ImGui::TextUnformatted(resultTitle(m.result));
+        ui::textFit(resultTitle(m.result));
         auto right = [](const std::string& t, const ImVec4& c) {
             float rx = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
             ImGui::SetCursorPosX(rx - ImGui::CalcTextSize(t.c_str()).x);
@@ -1000,8 +1082,10 @@ void Plugin::drawMapsTable(const RunRecord& r, const char* id, float height) {
         right(m.bestMs > 0 ? formatMs(m.bestMs) : std::string("-"), m.bestMs > 0 ? style_.text : style_.muted);
         ImGui::TableNextColumn();
         right(formatClock(m.spentMs), style_.muted);
-        ImGui::TableNextColumn();
-        right(std::to_string(m.tmxId), style_.muted);
+        if (!narrow) {
+            ImGui::TableNextColumn();
+            right(std::to_string(m.tmxId), style_.muted);
+        }
     }
     ImGui::EndTable();
 }
@@ -1009,24 +1093,39 @@ void Plugin::drawMapsTable(const RunRecord& r, const char* id, float height) {
 void Plugin::drawResults(const RunRecord& r, bool live) {
     const float sc = style_.scale;
     ui::beginCard(live ? "Run finished" : "Run", Icon::Flag);
+    char b[200];
     if (r.timeLimitMs > 0 && r.mode == "rmc")
-        ImGui::TextColored(style_.text2, "%s, %d min, goal %s", modeTitle(r.mode), r.timeLimitMs / 60000,
-                           goalTitle(Session::goalFromKey(r.goal.c_str())));
+        std::snprintf(b, sizeof b, "%s, %d min, goal %s", modeTitle(r.mode), r.timeLimitMs / 60000, goalTitle(Session::goalFromKey(r.goal.c_str())));
     else
-        ImGui::TextColored(style_.text2, "%s, goal %s", modeTitle(r.mode), goalTitle(Session::goalFromKey(r.goal.c_str())));
+        std::snprintf(b, sizeof b, "%s, goal %s", modeTitle(r.mode), goalTitle(Session::goalFromKey(r.goal.c_str())));
+    ui::textFit(b, 0, &style_.text2);
+    // the counters wrap as a whole ("Gold 3"), never in the middle
     ImGui::PushFont(titleFont());
+    const float dotW = ImGui::GetTextLineHeight() * 0.44f + 2 + ImGui::GetStyle().ItemInnerSpacing.x;
     ui::medalDot(kAuthor);
     ImGui::Text("AT %d", r.authors);
-    ImGui::SameLine(0, 22 * sc);
+    std::snprintf(b, sizeof b, "Gold %d", r.golds);
+    ui::flowNext(dotW + ImGui::CalcTextSize(b).x, 22 * sc);
     ui::medalDot(kGold);
-    ImGui::Text("Gold %d", r.golds);
-    ImGui::SameLine(0, 22 * sc);
-    ImGui::Text("Skips %d", r.skips);
-    ImGui::SameLine(0, 22 * sc);
-    ImGui::Text("Maps %d", static_cast<int>(r.maps.size()));
+    ImGui::TextUnformatted(b);
+    std::snprintf(b, sizeof b, "Skips %d", r.skips);
+    ui::flowNext(ImGui::CalcTextSize(b).x, 22 * sc);
+    ImGui::TextUnformatted(b);
+    std::snprintf(b, sizeof b, "Maps %d", static_cast<int>(r.maps.size()));
+    ui::flowNext(ImGui::CalcTextSize(b).x, 22 * sc);
+    ImGui::TextUnformatted(b);
     ImGui::PopFont();
-    const char* by = r.endedBy == "timer" ? "time ran out" : r.endedBy == "user" ? "ended by you" : r.endedBy.c_str();
-    ImGui::TextColored(style_.muted, "Played %s, %s, %s, %s", formatClock(r.elapsedMs).c_str(), r.site.c_str(), by, r.started.c_str());
+    const char* by = r.endedBy == "timer" ? "time ran out" : r.endedBy == "user" ? "stopped" : r.endedBy.c_str();
+    // the details as pieces that wrap whole: played time, site, how it ended, start
+    std::string when = r.started;
+    for (char& c : when)
+        if (c == 'T') c = ' ';
+    const std::string parts[] = {"Played " + formatClock(r.elapsedMs), r.site, by, when};
+    for (size_t i = 0; i < 4; ++i) {
+        std::string t = parts[i] + (i < 3 ? "," : "");
+        if (i) ui::flowNext(ImGui::CalcTextSize(t.c_str()).x, ImGui::CalcTextSize(" ").x);
+        ui::textFit(t.c_str(), 0, &style_.muted);
+    }
     if (live) {
         if (ImGui::Button("New run", ImVec2(140 * sc, 0))) run_.newRun();
         ImGui::SameLine();
@@ -1034,7 +1133,7 @@ void Plugin::drawResults(const RunRecord& r, bool live) {
             ImGui::TextColored(style_.muted, "Saved");
             ui::infoTip(run_.lastRunPath().c_str());
         } else if (!run_.error().empty()) {
-            ImGui::TextColored(style_.bad, "%s", run_.error().c_str());
+            ui::textFit(run_.error().c_str(), 0, &style_.bad);
         }
     }
     ui::endCard();
@@ -1047,9 +1146,10 @@ void Plugin::drawResults(const RunRecord& r, bool live) {
 void Plugin::drawMapCard(PreparedMap* m, float width, bool thumb) {
     ensureTexture(m);
     if (thumb && m->tex && m->thumb.w > 0) {
-        float h = width * static_cast<float>(m->thumb.h) / static_cast<float>(m->thumb.w);
-        if (h > width * 0.62f) h = width * 0.62f;
-        ImGui::Image(m->tex, ImVec2(width, h));
+        float iw = std::min(width, 480 * style_.scale);  // a stacked card is wide: keep the picture sensible
+        float h = iw * static_cast<float>(m->thumb.h) / static_cast<float>(m->thumb.w);
+        if (h > iw * 0.62f) h = iw * 0.62f;
+        ImGui::Image(m->tex, ImVec2(iw, h));
     }
     TmTextStyle ts;
     ts.font = style_.title;
@@ -1096,7 +1196,7 @@ void Plugin::drawMedalRows(PreparedMap* m, float width) {
         timeRight(t, x0 + width, reached ? medalColor(md) : style_.text2);
     }
     float x0 = ImGui::GetCursorPosX();
-    ImGui::TextColored(style_.muted, goal == Goal::Finished ? "Personal best (goal: finish)" : "Personal best");
+    ImGui::TextColored(style_.muted, "Personal best");
     if (pb > 0) {
         timeRight(pb, x0 + width, best != Medal::None ? medalColor(best) : style_.text);
     } else {
@@ -1208,7 +1308,7 @@ void Plugin::panelSession() {
     RunRecord snap = run_.snapshot();
     float w = ImGui::GetContentRegionAvail().x;
     if (snap.maps.empty() && !run_.displayMap()) {
-        ImGui::TextColored(style_.muted, "The maps of the run appear here.");
+        ImGui::TextColored(style_.muted, "No maps yet");
         return;
     }
     float timeW = ImGui::CalcTextSize("0:00.000").x + 8 * style_.scale;
@@ -1316,7 +1416,7 @@ void Plugin::drawResultsToast() {
         ImGui::Text("Gold %d", r.golds);
         ImGui::SameLine(0, 14 * sc);
         ImGui::Text("Skips %d   Maps %d", r.skips, static_cast<int>(r.maps.size()));
-        ImGui::TextColored(style_.muted, "All results: Horizon menu > Legacy Randomizer");
+        ImGui::TextColored(style_.muted, "Results: Horizon menu");
         if (ImGui::Button("Dismiss", ImVec2(110 * sc, 0))) toastDismissed_ = true;
     }
     ImGui::End();

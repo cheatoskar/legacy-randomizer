@@ -15,8 +15,20 @@ void setStyle(const UiStyle& s);  // once per frame, before using the widgets
 const UiStyle& style();
 ImU32 col(const ImVec4& c, float alphaMul = 1.0f);
 
+// text that must fit: never clipped mid-word
+// text, or as much of it as fits in maxW followed by an ellipsis ("…", "..." when the font lacks it)
+std::string ellipsize(const char* text, float maxW, ImFont* font = nullptr, float fontSize = 0);
+// one line of text cut to maxW (<= 0: the rest of the line) with an ellipsis; the full text as tooltip when cut
+bool textFit(const char* text, float maxW = 0, const ImVec4* color = nullptr);
+// a small rounded tag ("0.3.0", "Experimental"); wraps to the next line when it doesn't fit after SameLine();
+// img: a logo in front of the text; tip: tooltip on hover
+float pillWidth(const char* text, bool img = false);
+void pill(const char* text, const ImVec4& color, bool outline = false, const char* tip = nullptr, ImTextureID img = 0);
+// SameLine, or a new line when an item of width w doesn't fit any more (rows of counters)
+void flowNext(float w, float spacing = -1.0f);
+
 // cards
-void beginCard(const char* title, Icon ic, float width = 0);  // width 0: the rest of the row
+void beginCard(const char* title, Icon ic, float width = 0, const char* tip = nullptr);  // width 0: the rest of the row
 void endCard();
 void emptyState(Icon ic, const char* line);  // a large muted icon and one line
 
@@ -27,7 +39,8 @@ bool toggle(const char* id, bool* v);                                   // just 
 void infoTip(const char* text);                                          // (i) on the same line
 
 // inputs (full width of the content region)
-bool segmented(const char* id, int* value, const char* const* labels, int count, float width = 0);
+// labels share the width (cut with an ellipsis when narrow); tips: a tooltip per segment (nullptr = none)
+bool segmented(const char* id, int* value, const char* const* labels, int count, float width = 0, const char* const* tips = nullptr);
 bool chip(const char* label, bool on, Icon ic = Icon::None, ImU32 iconColor = 0);  // iconColor 0: the text colour
 bool triState(const char* label, int* v);
 // author-time window in ms on a square-root scale up to maxMs, 5 s steps; 0 = open end. Values beyond the
