@@ -121,9 +121,29 @@ public:
         return HOST_HAS(hotkey_text) ? s(g_api->hotkey_text(g_self, handle)) : "";
     }
 
+    // ABI minor 4: menu / page size and scale. Older hosts (or a short struct): nullptr.
+    static const HorizonUiMetrics* metrics() {
+        if (!g_api || g_api->abi_minor < 4 || !HOST_HAS(ui_metrics)) return nullptr;
+        const HorizonUiMetrics* m = g_api->ui_metrics();
+        if (!m || m->size < offsetof(HorizonUiMetrics, page_h) + sizeof(m->page_h)) return nullptr;
+        return m;
+    }
+    bool uiMetrics(lr::UiMetrics* out) override {
+        const HorizonUiMetrics* m = metrics();
+        if (!m) return false;
+        out->scale = m->scale;
+        out->contentScale = m->content_scale;
+        out->pageW = m->page_w;
+        out->pageH = m->page_h;
+        return true;
+    }
+
     lr::UiStyle style() override {
         lr::UiStyle u;
         const HorizonStyle* hs = HOST_HAS(style) ? g_api->style() : nullptr;
+        const HorizonUiMetrics* m = metrics();
+        const bool metricsScale = m && m->scale > 0;
+        if (metricsScale) u.scale = m->scale;
         if (!hs || hs->size < offsetof(HorizonStyle, font_mono) + sizeof(hs->font_mono)) return u;
         u.accent = col(hs->accent);
         u.ok = col(hs->ok);
@@ -136,7 +156,7 @@ public:
         u.body = static_cast<ImFont*>(hs->font_body);
         u.title = static_cast<ImFont*>(hs->font_title);
         u.mono = static_cast<ImFont*>(hs->font_mono);
-        u.scale = hs->scale > 0 ? hs->scale : 1.0f;
+        if (!metricsScale && hs->scale > 0) u.scale = hs->scale;  // hosts before ABI minor 4
         return u;
     }
 
@@ -191,6 +211,12 @@ public:
                 return;
             }
         reinterpret_cast<IDirect3DTexture9*>(static_cast<uintptr_t>(t))->Release();
+    }
+
+    // ABI minor 5: hide other plugins' widgets while a run goes on
+    bool suspendWidgets(const char* pluginId, const char* keyPrefix, bool on) override {
+        if (!g_api || g_api->abi_minor < 5 || !HOST_HAS(suspend_widgets)) return false;
+        return g_api->suspend_widgets(g_self, pluginId, keyPrefix, on ? 1 : 0) == HORIZON_OK;
     }
 
     // save_replay exists from ABI minor 1 but host 0.1.0 answers NOT_SUPPORTED everywhere: stays off.

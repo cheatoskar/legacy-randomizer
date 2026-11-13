@@ -8,6 +8,8 @@
 // ignored (always the same first row), so random picks go through /trackrandom and are verified
 // against /api/tracks afterwards.
 #pragma once
+#include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,9 @@ enum class Site { TMNF, TMUF, TMN_ESWC, TMS, TMO };
 
 const char* siteHost(Site s);  // e.g. "tmnf.exchange"
 const char* siteName(Site s);  // e.g. "TMNF"
+// File name of a downloaded map, e.g. "TM_Sunrise_123.Challenge.Gbx": no spaces, no folder. Only this part
+// is sanitised; the folder in front of it is taken as it is (it may contain spaces, e.g. "Horizon Host").
+std::string mapFileName(Site s, long long id);
 
 struct TmxFilter {
     // Author time window in ms. Used instead of the API's "Length" field, which is not usable
@@ -32,7 +37,7 @@ struct TmxFilter {
     bool requireAuthorTime = true;    // drop maps without a validated author time
     int maxAttempts = 12;             // random picks before giving up
 
-    // RandomizerTMF parity (query names as RandomizerTMF sends them; checked live 2026-11-11 on
+    // Search filters (TMX query names, checked live 2026-11-11 on
     // /api/tracks of tmnf, nations, sunrise and original: name, author, mood, routes, primarytype,
     // lbtype, uploadedafter/before, inscreenshot/infeatured/inhasrecord; vehicle on tmuf).
     std::string name;                 // part of the map name
@@ -47,6 +52,7 @@ struct TmxFilter {
     signed char flags[6] = {-1, -1, -1, -1, -1, -1};
 };
 
+// FlagReplays is never sent: on TMX, inreplays=1 returns no maps without a login (checked 2026-11-11).
 enum TmxFlag { FlagScreenshot = 0, FlagFeatured, FlagHasRecord, FlagReplays, FlagLatestAuthor, FlagSupporter, FlagCount };
 const char* tmxFlagQuery(int flag);  // "inscreenshot", ...
 std::string urlEncode(const std::string& s);
@@ -69,10 +75,31 @@ struct TmxError {
     bool ok() const { return message.empty(); }
 };
 
+// Cancels the requests that carry it, from any thread: cancel() closes their open WinINet handles, so a
+// blocking connect/send/read returns at once; every later request with it fails at once ("cancelled").
+class HttpCancel {
+public:
+    void cancel();
+    bool cancelled();
+    // used by the request (tmx.cpp): register the open handles; false = already cancelled
+    bool attach(void* net, void* con, void* req);
+    // the request is done: true = it closes its handles itself, false = cancel() has closed them
+    bool detach();
+
+private:
+    std::mutex mu_;
+    bool cancelled_ = false;
+    void* h_[3] = {nullptr, nullptr, nullptr};  // req, con, net
+};
+
 struct HttpOptions {
     int timeoutMs = 15000;
     int retries = 1;  // extra attempts after the first
+    std::shared_ptr<HttpCancel> cancel;  // optional
 };
+
+// Tests only: every request goes to host:port over plain HTTP (a local fake server). "" = off.
+void setTestEndpoint(const std::string& host, int port);
 
 // --- pure helpers (no network, unit-tested) ---
 std::string buildRandomPath(const TmxFilter& f);                 // "/trackrandom?..."
@@ -91,6 +118,8 @@ TmxError getRandomMap(Site s, const TmxFilter& f, MapInfo& out, const HttpOption
 // optionally returns the bytes.
 TmxError downloadMap(Site s, long long id, const std::string& path, std::string* bytesOut = nullptr,
                      const HttpOptions& o = HttpOptions());
+// The write step of downloadMap: bytes to path (UTF-8, taken as it is) via path + ".part" and a rename.
+TmxError writeMapFile(const std::string& path, const std::string& bytes);
 
 // Screenshot TMX shows for a map: GET /trackshow/<id>/image/1 (JPEG; checked live on
 // sunrise.tm-exchange.com and tmnf.exchange 2026-11-11). Fails when the map has none.

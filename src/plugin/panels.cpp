@@ -33,8 +33,8 @@ int indexOf(const PanelDef& d) { return static_cast<int>(&d - kPanels); }
 
 struct Place { const char* key; float x, y, w, h; };
 const Place kDefaults[] = {
-    {"timer", 0.41f, 0.012f, 0.18f, 0.095f},  {"map", 0.008f, 0.012f, 0.17f, 0.315f},
-    {"medals", 0.822f, 0.012f, 0.17f, 0.25f}, {"controls", 0.008f, 0.338f, 0.17f, 0.11f},
+    {"timer", 0.41f, 0.012f, 0.18f, 0.15f},   {"map", 0.008f, 0.012f, 0.17f, 0.315f},
+    {"medals", 0.822f, 0.012f, 0.17f, 0.25f}, {"controls", 0.008f, 0.338f, 0.17f, 0.17f},
     {"session", 0.822f, 0.274f, 0.17f, 0.30f}, {"card", 0.008f, 0.012f, 0.185f, 0.56f},
 };
 
@@ -134,7 +134,7 @@ void Panels::applyCompactPreset() {
 
 // ------------------------------------------------------------------ the menu page
 
-void Panels::drawNavigation() {
+void Panels::drawNavigation(bool iconsOnly) {
     const UiStyle& st = ui::style();
     const float sc = st.scale;
     const float h = 34.0f * sc;
@@ -144,7 +144,14 @@ void Panels::drawNavigation() {
         if (d.hud && !hudHeader) {
             hudHeader = true;
             ImGui::Dummy(ImVec2(0, 8 * sc));
-            ImGui::TextColored(st.muted, "HUD PANELS");
+            if (iconsOnly) {
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                float wd = ImGui::GetContentRegionAvail().x;
+                dl->AddLine(ImVec2(p.x + 6 * sc, p.y), ImVec2(p.x + wd - 6 * sc, p.y), ui::col(st.muted, 0.4f), 1.0f);
+                ImGui::Dummy(ImVec2(0, 6 * sc));
+            } else {
+                ui::textFit("HUD PANELS", 0, &st.muted);
+            }
         }
         PanelState& w = state(d);
         const bool active = current_ == d.key && !w.detached;
@@ -156,7 +163,7 @@ void Panels::drawNavigation() {
         ImGui::PopID();
         const float is = 16.0f * sc;
         const ImVec2 popMin(p.x + wd - is - 8 * sc, p.y + (h - is) * 0.5f), popMax(popMin.x + is, popMin.y + is);
-        const bool onPop = hovered && !w.detached && ImGui::IsMouseHoveringRect(popMin, popMax);
+        const bool onPop = !iconsOnly && hovered && !w.detached && ImGui::IsMouseHoveringRect(popMin, popMax);
         if (clicked) {
             if (w.detached) {
                 w.minimized = false;
@@ -168,23 +175,32 @@ void Panels::drawNavigation() {
             }
         }
         if (hovered) {
-            if (w.detached) ImGui::SetTooltip("%s is in its own window. Click to bring the window to the front.", d.title);
-            else if (onPop) ImGui::SetTooltip("Open %s in its own window", d.title);
-            else ImGui::SetTooltip("%s", d.hint);
+            if (w.detached) ImGui::SetTooltip("%s: in its own window", d.title);
+            else if (onPop) ImGui::SetTooltip("Pop out %s", d.title);
+            else ImGui::SetTooltip("%s", iconsOnly ? d.title : d.hint);
         }
         if (active || hovered)
             dl->AddRectFilled(p, ImVec2(p.x + wd, p.y + h), active ? ui::col(st.accent, 0.16f) : IM_COL32(255, 255, 255, 14), 6 * sc);
         if (active) dl->AddRectFilled(ImVec2(p.x, p.y + h * 0.22f), ImVec2(p.x + 3 * sc, p.y + h * 0.78f), ui::col(st.accent), 2);
         ImU32 tc = active ? ui::col(st.text) : ui::col(st.text2, w.detached ? 0.5f : 0.85f);
+        if (iconsOnly) {
+            drawIcon(dl, d.icon, ImVec2(p.x + (wd - is) * 0.5f, p.y + (h - is) * 0.5f), is, active ? ui::col(st.accent) : tc);
+            continue;
+        }
         drawIcon(dl, d.icon, ImVec2(p.x + 10 * sc, p.y + (h - is) * 0.5f), is, active ? ui::col(st.accent) : tc);
         float th = ImGui::GetTextLineHeight();
-        dl->AddText(ImVec2(p.x + 34 * sc, p.y + (h - th) * 0.5f), tc, d.title);
-        if (w.detached) {
-            const char* mark = "(detached)";
-            ImVec2 ms = ImGui::CalcTextSize(mark);
-            dl->AddText(nullptr, ImGui::GetFontSize() * 0.8f, ImVec2(p.x + wd - ms.x * 0.8f - 8 * sc, p.y + (h - th * 0.8f) * 0.5f),
+        // right end: "(detached)" or the pop-out symbol; the title gets the rest
+        const char* mark = "(detached)";
+        const float markW = ImGui::CalcTextSize(mark).x * 0.8f;
+        const float tx = p.x + 34 * sc;
+        bool showMark = w.detached && wd - 34 * sc - markW - 16 * sc >= ImGui::CalcTextSize(d.title).x;
+        float right = showMark ? markW + 16 * sc : (hovered || active) && !w.detached ? is + 14 * sc : 6 * sc;
+        std::string t = ui::ellipsize(d.title, wd - 34 * sc - right);
+        dl->AddText(ImVec2(tx, p.y + (h - th) * 0.5f), tc, t.c_str());
+        if (showMark) {
+            dl->AddText(nullptr, ImGui::GetFontSize() * 0.8f, ImVec2(p.x + wd - markW - 8 * sc, p.y + (h - th * 0.8f) * 0.5f),
                         ui::col(st.muted), mark);
-        } else if (hovered || active) {
+        } else if (!w.detached && (hovered || active)) {
             drawIcon(dl, Icon::PopOut, popMin, is, onPop ? ui::col(st.accent) : ui::col(st.muted));
         }
     }
@@ -195,13 +211,13 @@ void Panels::drawCurrentPage() {
     if (!d) d = &kPanels[0];
     PanelState& w = state(*d);
     if (w.detached) {
-        ImGui::TextColored(ui::style().muted, "%s is in its own window.", d->title);
-        if (ImGui::Button("Show the window")) {
+        ui::textFit((std::string(d->title) + ": own window").c_str(), 0, &ui::style().muted);
+        if (ImGui::Button("Show")) {
             w.minimized = false;
             ImGui::SetWindowFocus((std::string(d->title) + "##lrwin_" + d->key).c_str());
         }
         ImGui::SameLine();
-        if (ImGui::Button("Bring it back here")) attach(*d);
+        if (ImGui::Button("Back here")) attach(*d);
         return;
     }
     d->draw(plugin_);
@@ -209,11 +225,22 @@ void Panels::drawCurrentPage() {
 
 // ------------------------------------------------------------------ windows
 
+void Panels::needLine() {
+    const float start = ImGui::GetWindowPos().x + ImGui::GetCursorStartPos().x;
+    needWidth(ImGui::GetItemRectMax().x - start);
+}
+
 void Panels::drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool editLayout) {
     ImVec2 disp = ImGui::GetIO().DisplaySize;
     bool resized = disp.x != lastDisplay_.x || disp.y != lastDisplay_.y;
     if (resized) ++placeGen_;
+    // the widths the HUD panels grew to (drawWindow) start over with a new run, layout or screen size
+    if (!runActive || resized || editLayout || neededGen_ != placeGen_) {
+        for (float& n : neededW_) n = 0.0f;
+        neededGen_ = placeGen_;
+    }
     lastDisplay_ = disp;
+    drawnCount_ = 0;
     for (const PanelDef& d : kPanels) {
         const PanelState& w = state(d);
         if (!w.detached) continue;
@@ -232,11 +259,30 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     ImVec2 size(w.w * disp.x, w.h * disp.y), pos(w.x * disp.x, w.y * disp.y);
     if (size.x < 120) size.x = 120;
     if (size.y < 40) size.y = 40;
+    // A locked HUD panel is at least as wide as its content (buttons and counter lines are never cut off):
+    // it grows by what the content needed in the last frame; a panel at the right edge grows to the left.
+    const int idx = indexOf(d);
+    if (locked && neededW_[idx] > size.x) {
+        const float grown = std::fmin(neededW_[idx], disp.x * 0.5f);
+        const bool rightSide = w.x + w.w * 0.5f > 0.5f;
+        if (rightSide) pos.x -= grown - size.x;
+        size.x = grown;
+        if (pos.x + size.x > disp.x) pos.x = disp.x - size.x;
+    }
     if (pos.x > disp.x - 40) pos.x = disp.x - 40;
     if (pos.y > disp.y - 30) pos.y = disp.y - 30;
     if (pos.x < 0) pos.x = 0;
     if (pos.y < 0) pos.y = 0;
     int& applied = applied_[indexOf(d)];
+    if (locked) {
+        // stacked under another locked panel (saved gap under 3 % of the screen): follow its real bottom
+        for (int i = 0; i < drawnCount_; ++i) {
+            const Drawn& o = drawn_[i];
+            float gap = w.y - o.savedBottom;
+            bool overlapX = w.x < o.x1 && w.x + w.w > o.x0;
+            if (overlapX && gap > -0.005f && gap < 0.03f) pos.y = o.realBottom + 8.0f * ui::style().scale;
+        }
+    }
     const ImGuiCond cond = (locked || applied != placeGen_) ? ImGuiCond_Always : ImGuiCond_Appearing;
     applied = placeGen_;
     ImGui::SetNextWindowPos(pos, cond);
@@ -253,8 +299,18 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     }
     bool open = true;
     const std::string name = std::string(d.title) + "##lrwin_" + d.key;
+    // HUD panels in TMVS's overlay look: small radius, tight padding (the host's menu windows are rounder)
+    if (d.hud) {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f * ui::style().scale);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * ui::style().scale, 10.0f * ui::style().scale));
+    }
     const bool visible = ImGui::Begin(name.c_str(), locked ? nullptr : &open, flags);
+    if (d.hud) ImGui::PopStyleVar(2);
     const bool collapsed = ImGui::IsWindowCollapsed();
+    if (locked && drawnCount_ < 16) {
+        float bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
+        drawn_[drawnCount_++] = {w.x, w.x + w.w, w.y + w.h, bottom};
+    }
     if (!locked && !ImGui::IsMouseDown(0)) {
         const ImVec2 at = ImGui::GetWindowPos(), ext = ImGui::GetWindowSize();
         float nx = at.x / disp.x, ny = at.y / disp.y, nw = ext.x / disp.x, nh = ext.y / disp.y;
@@ -286,7 +342,17 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
             ImGui::Separator();
         }
         if (d.hud) {
+            contentNeed_ = 0;
+            // the window's own padding (HUD panels push a smaller one than the style's): window width - content width
+            const float frame = ImGui::GetWindowSize().x - ImGui::GetContentRegionAvail().x;
             d.draw(plugin_);
+            if (locked && contentNeed_ > 0) {
+                // what the buttons and counter lines need (needWidth): the panel is that wide from the next frame
+                // on and keeps it while the run goes on (no jumping between two widths); a new run starts over
+                const float want = std::ceil(contentNeed_ + frame);
+                if (want > ImGui::GetWindowSize().x + 0.5f) neededW_[idx] = std::fmax(neededW_[idx], want);
+            }
+            contentNeed_ = 0;
         } else {
             ImGui::BeginChild("body", ImVec2(0, 0));
             d.draw(plugin_);

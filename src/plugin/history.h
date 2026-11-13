@@ -16,6 +16,7 @@ struct RunMapRecord {
     int bestMs = 0, spentMs = 0;
     MapMedals medals;
     std::string replay;      // path of a saved replay, "" none
+    std::string site;        // TMX host of this map ("" in older files: the run's site)
 };
 
 struct RunRecord {
@@ -36,6 +37,10 @@ public:
     std::string runsFolder() const { return folder_; }
     void reload();                                  // reads every run file (newest first)
     bool save(RunRecord& r, std::string* pathOut);  // sets r.file
+    // the in-memory part of save(): sets r.file, lists the run, returns the file's path ("" no folder);
+    // the caller writes runToJson(r) there (writeRun, any thread)
+    std::string add(RunRecord& r);
+    static bool writeRun(const std::string& path, const std::string& json);
     const std::vector<RunRecord>& runs() const { return runs_; }
     std::set<long long> playedIds(const std::string& site) const;  // TMX ids of every map in saved runs of that site
     std::set<long long> skippedIds(const std::string& site) const; // TMX ids skipped in saved runs of that site

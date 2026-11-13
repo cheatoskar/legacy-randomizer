@@ -9,8 +9,10 @@
 //    Patch 2.0) ONLY on the end screen. A skip during a Forever run asks the player to quit the map
 //    themselves (Esc > Quit); the next map starts from the menu.
 #pragma once
+#include <atomic>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../core/session.h"
@@ -69,6 +71,7 @@ public:
     std::string fetchStatus();
     bool fetchFailing();
     Site site() const { return site_; }
+    const std::vector<Site>& sites() const { return sites_; }  // the run's TMX sites (Forever "both": two)
     bool forever() const;
     const RunRecord& lastRun() const { return last_; }
     RunRecord snapshot(const char* endedBy = "") const;  // the run so far, as it would be saved
@@ -96,7 +99,9 @@ private:
     Fetcher fetcher_;
     std::unique_ptr<Session> session_;
     Phase phase_ = Phase::Idle;
-    Site site_ = Site::TMNF;
+    Site site_ = Site::TMNF;            // the first of sites_
+    std::vector<Site> sites_;
+    std::vector<Site> mapSites_;        // per started map (history entry), for the run file
     SessionConfig cfg_;
     std::string started_;
 
@@ -121,12 +126,21 @@ private:
     std::string loadedUid_;
     double lastTick_ = 0, advanceAt_ = 0, loadSentAt_ = 0, leaveSentAt_ = 0, retryAt_ = 0, goalAt_ = 0;
     double tickCarry_ = 0;
+    int waitLoggedState_ = -1;  // game state last logged while waiting to start a map (logged once per state)
     double mapLoadedAt_ = 0;  // MAP_LOADED of the pending map (fallback when RACE_START never comes)
     int loadFailures_ = 0;
     std::string notice_, error_;
 
     RunRecord last_;
     std::string lastPath_;
+
+    // Textures of maps let go during a frame: the draw data of that frame may still use them, so they are
+    // released at the next update() (start of the next frame), never mid-frame.
+    std::vector<ImTextureID> deadTex_;
+    void releaseDeadTextures();
+    // the run file is written by a small thread (no file I/O on the game thread when a run ends)
+    std::thread saver_;
+    std::atomic<int> saveState_{0};  // 0 idle/writing, 1 written, 2 failed
 };
 
 const char* phaseName(Phase p);

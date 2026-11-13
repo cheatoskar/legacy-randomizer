@@ -8,14 +8,19 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include <winsock2.h>
 #include <windows.h>
+#pragma comment(lib, "ws2_32.lib")  // the hanging local server of the cancel test
 
 #include "../src/core/gbx.h"
 #include "../src/core/json.h"
 #include "../src/core/session.h"
+#include "../src/core/timefmt.h"
 #include "../src/core/tmx.h"
 
 namespace fs = std::filesystem;
@@ -143,6 +148,96 @@ static std::string xmlAttrOf(const std::string& bytes, const char* key) {
     a += std::strlen(key);
     size_t b = bytes.find('"', a);
     return bytes.substr(a, b - a);
+}
+
+// HttpCancel: a request that hangs (a local server that accepts and never answers) returns as soon as
+// another thread cancels it, not after its timeout; a cancelled token fails new requests at once.
+static void testHttpCancel() {
+    section("http cancel");
+    WSADATA w;
+    if (WSAStartup(MAKEWORD(2, 2), &w) != 0) { std::printf("  SKIP (no winsock)\n"); return; }
+    SOCKET ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    sockaddr_in a = {};
+    a.sin_family = AF_INET;
+    a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    int len = sizeof a;
+    bool up = ls != INVALID_SOCKET && bind(ls, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0 && listen(ls, 4) == 0 &&
+              getsockname(ls, reinterpret_cast<sockaddr*>(&a), &len) == 0;
+    CHECK(up);
+    if (!up) { WSACleanup(); return; }
+    std::vector<SOCKET> held;
+    std::thread acceptor([&] {
+        for (;;) {
+            SOCKET c = accept(ls, nullptr, nullptr);
+            if (c == INVALID_SOCKET) break;
+            held.push_back(c);
+        }
+    });
+    setTestEndpoint("127.0.0.1", ntohs(a.sin_port));
+    HttpOptions o;
+    o.timeoutMs = 8000;
+    o.retries = 1;
+    o.cancel = std::make_shared<HttpCancel>();
+    TmxError e;
+    LARGE_INTEGER f, t0, t1, t2;
+    QueryPerformanceFrequency(&f);
+    std::thread worker([&] {
+        MapInfo info;
+        e = getMapInfo(Site::TMNF, 1, info, o);
+    });
+    Sleep(300);  // the request is waiting for an answer now
+    QueryPerformanceCounter(&t0);
+    o.cancel->cancel();
+    QueryPerformanceCounter(&t1);
+    worker.join();
+    QueryPerformanceCounter(&t2);
+    double cancelMs = (t1.QuadPart - t0.QuadPart) * 1000.0 / f.QuadPart, returnMs = (t2.QuadPart - t0.QuadPart) * 1000.0 / f.QuadPart;
+    std::printf("  cancel() %.2f ms, the hanging request returned after %.2f ms (timeout 8000 ms x 2)\n", cancelMs, returnMs);
+    CHECK(!e.ok());
+    CHECK(cancelMs < 16.0);
+    CHECK(returnMs < 1000.0);
+    MapInfo info;
+    QueryPerformanceCounter(&t0);
+    CHECK(getMapInfo(Site::TMNF, 1, info, o).message == "cancelled");  // fails at once afterwards
+    QueryPerformanceCounter(&t1);
+    CHECK((t1.QuadPart - t0.QuadPart) * 1000.0 / f.QuadPart < 16.0);
+    setTestEndpoint("", 0);
+    closesocket(ls);
+    acceptor.join();
+    for (SOCKET c : held) closesocket(c);
+    WSACleanup();
+}
+
+// The map's file name is sanitised, the folder is not: TMLoader's data folder is "...\Horizon Host\data\..."
+static void testMapFiles() {
+    section("map file names and the download write");
+    for (Site s : {Site::TMNF, Site::TMUF, Site::TMN_ESWC, Site::TMS, Site::TMO}) {
+        std::string n = mapFileName(s, 123456);
+        CHECK(!n.empty());
+        CHECK(n.find(' ') == std::string::npos);
+        CHECK(n.find('\\') == std::string::npos && n.find('/') == std::string::npos);
+        CHECK(n.find("123456") != std::string::npos);
+        CHECK(n.size() > 14 && n.compare(n.size() - 14, 14, ".Challenge.Gbx") == 0);
+    }
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec) / "lr test dir with spaces";
+    fs::remove_all(base, ec);
+    fs::path dirW = base / "Horizon Host" / "data" / "maps";
+    CHECK(fs::create_directories(dirW, ec));
+    std::string dir = dirW.u8string() + "\\";
+    CHECK(dir.find(' ') != std::string::npos);
+    const std::string bytes = std::string("GBX\x06\x00", 5) + "fake map body";
+    std::string path = dir + mapFileName(Site::TMS, 42);
+    CHECK(writeMapFile(path, bytes).ok());
+    fs::path expect = dirW / fs::u8path(mapFileName(Site::TMS, 42));
+    CHECK(fs::exists(expect, ec));
+    CHECK(!fs::exists(fs::u8path(path + ".part"), ec));
+    CHECK_EQ(readAll(expect), bytes);
+    CHECK(writeMapFile(path, bytes + "x").ok());  // replaces an existing file
+    CHECK_EQ(readAll(expect), bytes + "x");
+    CHECK(!writeMapFile((base / "missing folder" / "x.Gbx").u8string(), bytes).ok());
+    fs::remove_all(base, ec);
+    CHECK(!fs::exists(base, ec));
 }
 
 static void testGbx(const fs::path& mapsDir) {
@@ -562,20 +657,68 @@ static void testLive() {
     std::printf("  download of id 1 -> \"%s\"\n", e.ok() ? "ok" : e.message.c_str());
 }
 
+static void testDurations() {
+    int ms = -1;
+    CHECK(parseDurationMs("", &ms) && ms == 0);
+    CHECK(parseDurationMs("  ", &ms) && ms == 0);
+    CHECK(parseDurationMs("0:30", &ms) && ms == 30000);
+    CHECK(parseDurationMs("1:30", &ms) && ms == 90000);
+    CHECK(parseDurationMs("12:05", &ms) && ms == 725000);
+    CHECK(parseDurationMs("1:30.250", &ms) && ms == 90250);
+    CHECK(parseDurationMs("0:42.5", &ms) && ms == 42500);
+    CHECK(parseDurationMs("1:02:03", &ms) && ms == 3723000);
+    CHECK(parseDurationMs("1:02:03.004", &ms) && ms == 3723004);
+    CHECK(parseDurationMs(" 1:30 ", &ms) && ms == 90000);
+    ms = 7;
+    CHECK(!parseDurationMs("90", &ms));
+    CHECK(!parseDurationMs("1:3", &ms));
+    CHECK(!parseDurationMs("1:60", &ms));
+    CHECK(!parseDurationMs("1:30.", &ms));
+    CHECK(!parseDurationMs("1:30.1234", &ms));
+    CHECK(!parseDurationMs("1:2:03", &ms));
+    CHECK(!parseDurationMs("a:30", &ms));
+    CHECK(!parseDurationMs("1:30:00:00", &ms));
+    CHECK_EQ(ms, 7);
+    CHECK_EQ(formatDurationMs(0), std::string());
+    CHECK_EQ(formatDurationMs(30000), std::string("0:30"));
+    CHECK_EQ(formatDurationMs(90250), std::string("1:30.250"));
+    CHECK_EQ(formatDurationMs(3723000), std::string("1:02:03"));
+    for (int v : {30000, 90250, 599999, 3723004}) {
+        int back = 0;
+        CHECK(parseDurationMs(formatDurationMs(v), &back) && back == v);
+    }
+}
+
 int main(int argc, char** argv) {
     bool live = false;
-    fs::path maps = R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Challenges\Downloaded\_NostalgicCompletionist)";
+    // LR_TEST_ESWC_DIR: an ESWC game folder (with GameData\) for the tests on real maps and replays
+    fs::path eswc;
+    {
+        wchar_t* v = nullptr;
+        size_t n = 0;
+        if (_wdupenv_s(&v, &n, L"LR_TEST_ESWC_DIR") == 0 && v) {
+            if (*v) eswc = v;
+            free(v);
+        }
+    }
+    fs::path maps;
+    if (!eswc.empty()) maps = eswc / "GameData" / "Tracks" / "Challenges" / "Downloaded" / "_NostalgicCompletionist";
+    else std::printf("note: LR_TEST_ESWC_DIR is not set, the tests on the game's own maps and autosaves are skipped\n");
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--live") == 0) live = true;
         else if (std::strcmp(argv[i], "--maps") == 0 && i + 1 < argc) maps = argv[++i];
     }
     testJson();
     testTmxHelpers();
+    testMapFiles();
+    testHttpCancel();
     testGbx(maps);
     testSession();
     testGoals();
+    testDurations();
     {
-        std::vector<fs::path> replayDirs = {R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Replays\Autosaves)"};
+        std::vector<fs::path> replayDirs;
+        if (!eswc.empty()) replayDirs.push_back(eswc / "GameData" / "Tracks" / "Replays" / "Autosaves");
         wchar_t* docs = nullptr;
         size_t n = 0;
         if (_wdupenv_s(&docs, &n, L"USERPROFILE") == 0 && docs) {

@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "imgui_internal.h"  // the line's text offset (after AlignTextToFramePadding)
+
 namespace lr {
 
 void drawIcon(ImDrawList* dl, Icon ic, ImVec2 o, float s, ImU32 c) {
@@ -95,6 +97,75 @@ void drawIcon(ImDrawList* dl, Icon ic, ImVec2 o, float s, ImU32 c) {
         dl->AddLine(P(0.24f, 0.58f), P(0.76f, 0.58f), c, t);
         dl->AddLine(P(0.24f, 0.74f), P(0.6f, 0.74f), c, t);
         break;
+    case Icon::None: break;
+    case Icon::ChevronDown:
+        dl->AddLine(P(0.25f, 0.38f), P(0.5f, 0.64f), c, t);
+        dl->AddLine(P(0.5f, 0.64f), P(0.75f, 0.38f), c, t);
+        break;
+    case Icon::ChevronRight:
+        dl->AddLine(P(0.38f, 0.25f), P(0.64f, 0.5f), c, t);
+        dl->AddLine(P(0.64f, 0.5f), P(0.38f, 0.75f), c, t);
+        break;
+    case Icon::Sun:
+        dl->AddCircle(P(0.5f, 0.5f), s * 0.18f, c, 16, t);
+        for (int i = 0; i < 8; ++i) {
+            float a2 = i * pi / 4;
+            dl->AddLine(P(0.5f + 0.3f * std::cos(a2), 0.5f + 0.3f * std::sin(a2)), P(0.5f + 0.42f * std::cos(a2), 0.5f + 0.42f * std::sin(a2)), c, t);
+        }
+        break;
+    case Icon::Sunrise:
+    case Icon::Sunset:
+        dl->PathArcTo(P(0.5f, 0.66f), s * 0.2f, pi, 2 * pi, 12);
+        dl->PathStroke(c, 0, t);
+        dl->AddLine(P(0.1f, 0.66f), P(0.9f, 0.66f), c, t);
+        dl->AddLine(P(0.5f, 0.1f), P(0.5f, 0.32f), c, t);
+        if (ic == Icon::Sunrise) {
+            dl->AddLine(P(0.4f, 0.2f), P(0.5f, 0.1f), c, t);
+            dl->AddLine(P(0.6f, 0.2f), P(0.5f, 0.1f), c, t);
+        } else {
+            dl->AddLine(P(0.4f, 0.22f), P(0.5f, 0.32f), c, t);
+            dl->AddLine(P(0.6f, 0.22f), P(0.5f, 0.32f), c, t);
+        }
+        dl->AddLine(P(0.18f, 0.84f), P(0.82f, 0.84f), c, t);
+        break;
+    case Icon::Moon:
+        dl->PathArcTo(P(0.5f, 0.5f), s * 0.34f, pi * 0.35f, pi * 1.65f, 20);
+        dl->PathArcTo(P(0.66f, 0.42f), s * 0.26f, pi * 1.45f, pi * 0.55f, 16);
+        dl->PathStroke(c, ImDrawFlags_Closed, t);
+        break;
+    case Icon::Route:
+        dl->AddCircle(P(0.22f, 0.78f), s * 0.1f, c, 12, t);
+        dl->AddCircle(P(0.78f, 0.22f), s * 0.1f, c, 12, t);
+        dl->AddBezierCubic(P(0.32f, 0.78f), P(0.9f, 0.78f), P(0.1f, 0.22f), P(0.68f, 0.22f), c, t);
+        break;
+    case Icon::RouteSingle:
+        // one path from start to finish
+        dl->AddCircle(P(0.22f, 0.8f), s * 0.09f, c, 12, t);
+        dl->AddBezierCubic(P(0.22f, 0.7f), P(0.22f, 0.4f), P(0.78f, 0.6f), P(0.78f, 0.3f), c, t);
+        dl->AddLine(P(0.78f, 0.3f), P(0.78f, 0.1f), c, t);
+        dl->AddTriangleFilled(P(0.78f, 0.1f), P(0.95f, 0.16f), P(0.78f, 0.22f), c);
+        break;
+    case Icon::RouteMulti:
+        // a path that splits in two
+        dl->AddCircle(P(0.5f, 0.84f), s * 0.09f, c, 12, t);
+        dl->AddLine(P(0.5f, 0.75f), P(0.5f, 0.52f), c, t);
+        dl->AddBezierCubic(P(0.5f, 0.52f), P(0.5f, 0.36f), P(0.2f, 0.36f), P(0.2f, 0.14f), c, t);
+        dl->AddBezierCubic(P(0.5f, 0.52f), P(0.5f, 0.36f), P(0.8f, 0.36f), P(0.8f, 0.14f), c, t);
+        dl->AddCircleFilled(P(0.2f, 0.14f), s * 0.07f, c, 10);
+        dl->AddCircleFilled(P(0.8f, 0.14f), s * 0.07f, c, 10);
+        break;
+    case Icon::RouteSymmetric:
+        // two paths mirrored on a centre line
+        for (float y = 0.1f; y < 0.9f; y += 0.2f) dl->AddLine(P(0.5f, y), P(0.5f, y + 0.1f), c, t * 0.8f);
+        dl->AddBezierCubic(P(0.38f, 0.85f), P(0.1f, 0.65f), P(0.1f, 0.35f), P(0.38f, 0.15f), c, t);
+        dl->AddBezierCubic(P(0.62f, 0.85f), P(0.9f, 0.65f), P(0.9f, 0.35f), P(0.62f, 0.15f), c, t);
+        break;
+    case Icon::Gauge:
+        dl->PathArcTo(P(0.5f, 0.62f), s * 0.38f, pi, 2 * pi, 16);
+        dl->PathStroke(c, 0, t);
+        dl->AddLine(P(0.5f, 0.62f), P(0.7f, 0.38f), c, t);
+        dl->AddCircleFilled(P(0.5f, 0.62f), s * 0.06f, c, 8);
+        break;
     case Icon::PopOut:
         dl->AddRect(P(0.12f, 0.3f), P(0.7f, 0.88f), c, 2.0f, 0, t);
         dl->AddLine(P(0.45f, 0.55f), P(0.9f, 0.1f), c, t);
@@ -109,7 +180,7 @@ void icon(Icon ic, ImU32 col, float size) {
     if (!col) col = ImGui::GetColorU32(ImGuiCol_Text);
     ImVec2 p = ImGui::GetCursorScreenPos();
     float lh = ImGui::GetTextLineHeight();
-    float dy = size < lh ? (lh - size) * 0.5f : 0.0f;
+    float dy = (size < lh ? (lh - size) * 0.5f : 0.0f) + ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;
     drawIcon(ImGui::GetWindowDrawList(), ic, ImVec2(p.x, p.y + dy), size, col);
     ImGui::Dummy(ImVec2(size, size > lh ? size : lh));
 }

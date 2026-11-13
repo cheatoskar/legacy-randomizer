@@ -2,6 +2,7 @@
 // Window/panel state is stored by panels.cpp (keys "win_<panel>").
 #pragma once
 #include <string>
+#include <vector>
 
 #include "../core/session.h"
 #include "../core/tmx.h"
@@ -31,8 +32,12 @@ struct Settings {
     bool excludeFinished = false;    // maps with a replay in the game's Autosaves folder
     std::string banned;              // TMX ids, comma separated (stored per site: banned_<site>)
     // map filters (TMX)
-    SiteChoice site = SiteChoice::Auto;
-    int atMinS = 0, atMaxS = 0;  // 0 = no bound
+    SiteChoice site = SiteChoice::Auto;  // ESWC / Sunrise / Original (Forever uses foreverSource)
+    // Forever: 0 the game's own exchange, 1 the other one (TMNF game: TMUF-X, Stadium only), 2 both
+    // (a site per map). TMUF offers 0 and 2 (TMNF-X as an extra source).
+    int foreverSource = 0;
+    bool evenSites = false;      // both sites: keep the count of maps per site even instead of a coin flip
+    int atMinMs = 0, atMaxMs = 0;  // author time window, 0 = no bound
     int envMask = 0;             // bit (id-1) per TMX environment id, 0 any
     int difficulty = -1;
     int tag = -1;
@@ -52,6 +57,7 @@ struct Settings {
     HudPreset hudPreset = HudPreset::Split;
     bool layoutEdit = false;
     bool hudCompact = false;      // compact card: smaller variant
+    bool hideScriptWidgets = true; // hide the Clock and Map Info script widgets during a run (host 0.3.1+)
     HudCorner hudCorner = HudCorner::TopLeft;
     ThumbSource thumbSource = ThumbSource::Tmx;
 
@@ -61,10 +67,15 @@ struct Settings {
 
     SessionConfig sessionConfig() const;
     TmxFilter filter(Site site) const;  // without the environment (the fetcher picks it per request)
-    std::string summary(Site site) const;  // "RMC · 60 min · Author · nations.tm-exchange.com · Stadium"
+    std::string summary(const std::vector<Site>& sites, HostGame g) const;  // "RMC · 60 min · Author · nations.tm-exchange.com · Stadium"
 };
 
 Site siteFor(SiteChoice c, HostGame g);
+bool isForever(HostGame g);
+std::vector<Site> sourceSites(const Settings& s, HostGame g);  // the TMX sites a run picks from (1 or 2)
+std::string sitesLabel(const std::vector<Site>& sites);        // "tmnf.exchange + tmuf.exchange"
+// The environments the environment chips offer for these sources (TMNF: Stadium only).
+int sourceEnvironments(const std::vector<Site>& sites, HostGame g, const int** ids);
 const char* hostGameShortName(HostGame g);
 const char* goalTitle(Goal g);      // "Author", "Gold", ..., "Finished"
 int siteEnvironments(Site s, const int** ids);  // TMX environment ids (1..7) of a site; returns count

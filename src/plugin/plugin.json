@@ -1,12 +1,13 @@
 {
   "id": "legacy-randomizer",
   "name": "Legacy Randomizer",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "dll": "legacy_randomizer_plugin.dll",
-  "games": ["eswc", "sunrise"],
+  "games": ["eswc", "sunrise", "original", "tmnf", "tmuf"],
   "online": "solo-only",
   "abi": 1,
   "description": "Random Map Challenge in game",
   "author": "cheatoskar",
-  "icon": "icon.png"
+  "icon": "icon.png",
+  "ui": { "min_w": 520, "min_h": 360, "pref_w": 860, "pref_h": 600 }
 }

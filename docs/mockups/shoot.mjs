@@ -1,8 +1,13 @@
-// Usage (from C:/Users/osaro/tools/playwright): node <this file>
+// Usage: set PLAYWRIGHT_DIR to a folder with Playwright installed (npm i playwright), then: node <this file>
 import { createRequire } from 'module';
-const { chromium } = createRequire('C:/Users/osaro/tools/playwright/')('playwright');
 import { pathToFileURL, fileURLToPath } from 'url';
 import path from 'path';
+const pw = process.env.PLAYWRIGHT_DIR;
+if (!pw) {
+  console.error('PLAYWRIGHT_DIR is not set: point it to a folder with Playwright installed (npm i playwright).');
+  process.exit(1);
+}
+const { chromium } = createRequire(path.join(path.resolve(pw), 'package.json'))('playwright');
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const html = pathToFileURL(path.join(dir, 'mockups.html')).href;
 const names = ['01-start', '02-hud', '03-results', '04-settings'];

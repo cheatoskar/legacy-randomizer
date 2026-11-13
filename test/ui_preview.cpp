@@ -4,22 +4,34 @@
 //
 //   ui_preview.exe                          interactive window: F8 menu, "Fake game" panel, Ctrl+F9/F10/F11
 //   ui_preview.exe --shots <dir>            renders the pages to PNG (1920x1080) and exits (few live TMX requests)
-//   options: --game eswc|sunrise|original|tmnf|tmuf (default eswc), --data <dir> (plugin data folder)
+//   ui_preview.exe --shots <dir> --display 1280x960   the same in a smaller game window (ESWC at 1280x960)
+//   ui_preview.exe --check-stop             Stop in the middle of a frame while a request hangs (local fake server,
+//                                           timed: Stop and the next Start must take < 16 ms), then while downloading,
+//                                           loading and racing (live TMX); exit code 0 = ok
+//   options: --game eswc|sunrise|original|tmnf|tmuf (default eswc), --data <dir> (plugin data folder),
+//            --no-metrics (a host before ABI minor 4: no ui_metrics),
+//            --size WxH (the page in a window of that size, like a popped-out page; menu shots are cropped to it,
+//            plus the live Run page, the Stop confirm and About), --quick (with --shots: the pages only, no run)
 //
 // The ImGui style here is TM Vibrant Shaders' (src/overlay.cpp), standing in for the Horizon host's style.
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <functional>
 #include <map>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include <winsock2.h>
 #include <windows.h>
+#pragma comment(lib, "ws2_32.lib")  // the stalling fake server of --check-stop
 #include <d3d9.h>
 #include <wincodec.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"  // closing the Stop confirm between shots
 #include "backends/imgui_impl_dx9.h"
 #include "backends/imgui_impl_win32.h"
 
@@ -194,7 +206,9 @@ public:
     bool isOnline() override { return online_; }
     bool actionsAllowed() override { return !online_; }
     bool menuOpen() override { return menuOpen_; }
+    int plays_ = 0;
     HostResult playMapFile(const std::string& path) override {
+        ++plays_;
         log(LogInfo, "[gamectl] PlayMapFile " + path);
         if (online_) return HostResult::BlockedOnline;
         if (state_ != GameState::MainMenu) return HostResult::WrongState;
@@ -234,6 +248,17 @@ public:
         return h >= 1 && h <= static_cast<int>(hotkeys_.size()) ? hotkeys_[h - 1].key : std::string();
     }
     UiStyle style() override { return style_; }
+    // like a Horizon host with ABI minor 4 (--no-metrics: an older host)
+    bool metrics_ = true;
+    float pageW_ = 0, pageH_ = 0;
+    bool uiMetrics(UiMetrics* out) override {
+        if (!metrics_) return false;
+        out->scale = style_.scale;
+        out->contentScale = 1.0f;
+        out->pageW = pageW_;
+        out->pageH = pageH_;
+        return true;
+    }
     double nowMs() override {
         LARGE_INTEGER c;
         QueryPerformanceCounter(&c);
@@ -353,74 +378,117 @@ void resetDevice() {
     ImGui_ImplDX9_CreateDeviceObjects();
 }
 
-// TM Vibrant Shaders' menu style (src/overlay.cpp), as a stand-in for the Horizon host's shared style.
-UiStyle applyTmvsStyle(float scale) {
+// The Horizon host's menu style (horizon-host src/host/ui/ui_style.cpp at 895610c: TM Horizon launcher
+// tokens, accent #ff6b1a, radii 10/14/20, Segoe UI 16 + Bahnschrift 28), so the screenshots show the
+// plugin as it looks inside the host.
+UiStyle applyHostStyle(float s) {
+    ImGuiStyle& st = ImGui::GetStyle();
+    st = ImGuiStyle();
+    st.WindowPadding = ImVec2(16.0f * s, 16.0f * s);
+    st.FramePadding = ImVec2(12.0f * s, 8.0f * s);
+    st.CellPadding = ImVec2(12.0f * s, 8.0f * s);
+    st.ItemSpacing = ImVec2(12.0f * s, 8.0f * s);
+    st.ItemInnerSpacing = ImVec2(8.0f * s, 4.0f * s);
+    st.IndentSpacing = 24.0f * s;
+    st.ScrollbarSize = 12.0f * s;
+    st.GrabMinSize = 14.0f * s;
+    st.WindowBorderSize = 1.0f;
+    st.ChildBorderSize = 0.0f;
+    st.PopupBorderSize = 1.0f;
+    st.FrameBorderSize = 0.0f;
+    st.TabBorderSize = 0.0f;
+    st.WindowRounding = 20.0f * s;
+    st.ChildRounding = 14.0f * s;
+    st.FrameRounding = 10.0f * s;
+    st.PopupRounding = 10.0f * s;
+    st.ScrollbarRounding = 12.0f * s;
+    st.GrabRounding = 10.0f * s;
+    st.TabRounding = 10.0f * s;
+    st.WindowTitleAlign = ImVec2(0.0f, 0.5f);
+
+    const ImVec4 accent(1.0f, 0.42f, 0.10f, 1.0f), accent2(1.0f, 0.54f, 0.27f, 1.0f), accent3(1.0f, 0.69f, 0.37f, 1.0f);
+    const ImVec4 bg(0.039f, 0.047f, 0.067f, 0.97f), bg2(0.063f, 0.075f, 0.102f, 1.0f), surface(0.106f, 0.118f, 0.141f, 1.0f);
+    const ImVec4 text(0.933f, 0.941f, 0.953f, 1.0f), text2(0.765f, 0.788f, 0.820f, 1.0f), muted(0.557f, 0.592f, 0.639f, 1.0f);
+    auto a = [](ImVec4 c, float alpha) { return ImVec4(c.x, c.y, c.z, alpha); };
+    ImVec4* c = st.Colors;
     ImGui::StyleColorsDark();
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 8.0f;
-    style.FrameRounding = 4.0f;
-    style.GrabRounding = 4.0f;
-    style.PopupRounding = 6.0f;
-    style.ScrollbarRounding = 6.0f;
-    style.WindowPadding = ImVec2(12.0f, 10.0f);
-    style.FramePadding = ImVec2(7.0f, 4.0f);
-    style.ItemSpacing = ImVec2(8.0f, 6.0f);
-    style.WindowBorderSize = 1.0f;
-    style.GrabMinSize = 9.0f;
-    ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.07f, 0.09f, 0.94f);
-    colors[ImGuiCol_Border] = ImVec4(1.0f, 1.0f, 1.0f, 0.08f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.09f, 0.11f, 1.0f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.10f, 0.09f, 1.0f);
-    colors[ImGuiCol_Separator] = ImVec4(1.0f, 1.0f, 1.0f, 0.10f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.21f, 0.26f, 0.95f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.24f, 0.25f, 0.31f, 1.0f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.09f, 0.11f, 0.98f);
-    colors[ImGuiCol_Header] = ImVec4(0.85f, 0.55f, 0.20f, 0.45f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.95f, 0.62f, 0.25f, 0.65f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.95f, 0.62f, 0.25f, 0.85f);
-    colors[ImGuiCol_Button] = ImVec4(0.85f, 0.55f, 0.20f, 0.55f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.95f, 0.62f, 0.25f, 0.80f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.14f, 0.15f, 0.19f, 0.90f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(1.00f, 0.66f, 0.28f, 0.95f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 0.75f, 0.40f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(1.00f, 0.70f, 0.30f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    // tabs in the same orange family (TMVS has no tabs; defaults would be blue)
-    colors[ImGuiCol_Tab] = ImVec4(0.14f, 0.15f, 0.19f, 0.90f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.95f, 0.62f, 0.25f, 0.65f);
-    colors[ImGuiCol_TabSelected] = ImVec4(0.85f, 0.55f, 0.20f, 0.70f);
-    colors[ImGuiCol_TabSelectedOverline] = ImVec4(1.00f, 0.66f, 0.28f, 1.00f);
-    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.12f, 0.13f, 0.16f, 1.0f);
-    style.ScaleAllSizes(scale);
+    c[ImGuiCol_Text] = text;
+    c[ImGuiCol_TextDisabled] = muted;
+    c[ImGuiCol_WindowBg] = bg;
+    c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_PopupBg] = a(bg2, 0.98f);
+    c[ImGuiCol_Border] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_FrameBg] = ImVec4(1, 1, 1, 0.07f);
+    c[ImGuiCol_FrameBgHovered] = ImVec4(1, 1, 1, 0.11f);
+    c[ImGuiCol_FrameBgActive] = ImVec4(1, 1, 1, 0.15f);
+    c[ImGuiCol_TitleBg] = bg2;
+    c[ImGuiCol_TitleBgActive] = bg2;
+    c[ImGuiCol_TitleBgCollapsed] = a(bg2, 0.8f);
+    c[ImGuiCol_MenuBarBg] = bg2;
+    c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_ScrollbarGrab] = ImVec4(1, 1, 1, 0.14f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1, 1, 1, 0.24f);
+    c[ImGuiCol_ScrollbarGrabActive] = a(accent2, 0.85f);
+    c[ImGuiCol_CheckMark] = accent2;
+    c[ImGuiCol_SliderGrab] = accent;
+    c[ImGuiCol_SliderGrabActive] = accent2;
+    c[ImGuiCol_Button] = surface;
+    c[ImGuiCol_ButtonHovered] = ImVec4(0.153f, 0.169f, 0.204f, 1.0f);
+    c[ImGuiCol_ButtonActive] = a(accent, 0.35f);
+    c[ImGuiCol_Header] = a(accent, 0.16f);
+    c[ImGuiCol_HeaderHovered] = a(accent, 0.28f);
+    c[ImGuiCol_HeaderActive] = a(accent, 0.40f);
+    c[ImGuiCol_Separator] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_SeparatorHovered] = a(accent2, 0.6f);
+    c[ImGuiCol_SeparatorActive] = accent2;
+    c[ImGuiCol_ResizeGrip] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_ResizeGripHovered] = a(accent2, 0.6f);
+    c[ImGuiCol_ResizeGripActive] = accent2;
+    c[ImGuiCol_TabHovered] = a(accent, 0.4f);
+    c[ImGuiCol_Tab] = surface;
+    c[ImGuiCol_TabSelected] = a(accent, 0.3f);
+    c[ImGuiCol_TabSelectedOverline] = accent;
+    c[ImGuiCol_TableHeaderBg] = bg2;
+    c[ImGuiCol_TableBorderStrong] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_TableBorderLight] = ImVec4(1, 1, 1, 0.05f);
+    c[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_TableRowBgAlt] = ImVec4(1, 1, 1, 0.025f);
+    c[ImGuiCol_TextSelectedBg] = a(accent, 0.35f);
+    c[ImGuiCol_PlotHistogram] = accent;
+    c[ImGuiCol_PlotLines] = accent2;
+    c[ImGuiCol_PlotHistogramHovered] = accent3;
+    c[ImGuiCol_ModalWindowDimBg] = ImVec4(0, 0, 0, 0.55f);
 
     ImGuiIO& io = ImGui::GetIO();
     char win[MAX_PATH] = {};
     GetWindowsDirectoryA(win, MAX_PATH);
     std::string fonts = std::string(win) + "\\Fonts\\";
+    static const ImWchar ranges[] = {0x0020, 0x024F, 0x0370, 0x03FF, 0x0400, 0x04FF, 0x2000, 0x206F, 0};
+    auto add = [&](const char* file, float px) -> ImFont* {
+        std::string p = fonts + file;
+        if (GetFileAttributesA(p.c_str()) == INVALID_FILE_ATTRIBUTES) return nullptr;
+        ImFontConfig cfg;
+        cfg.OversampleH = 2;
+        cfg.OversampleV = 2;
+        return io.Fonts->AddFontFromFileTTF(p.c_str(), px, &cfg, ranges);
+    };
     UiStyle u;
-    u.scale = scale;
-    ImFontConfig cfg;
-    const ImWchar* ranges = io.Fonts->GetGlyphRangesDefault();
-    static const ImWchar extRanges[] = {0x0020, 0x024F, 0x0370, 0x03FF, 0x0400, 0x04FF, 0x2000, 0x206F, 0};
-    ranges = extRanges;
-    if (GetFileAttributesA((fonts + "segoeui.ttf").c_str()) != INVALID_FILE_ATTRIBUTES) {
-        u.body = io.Fonts->AddFontFromFileTTF((fonts + "segoeui.ttf").c_str(), 17.0f * scale, &cfg, ranges);
-        const char* sb = GetFileAttributesA((fonts + "seguisb.ttf").c_str()) != INVALID_FILE_ATTRIBUTES ? "seguisb.ttf" : "segoeui.ttf";
-        u.title = io.Fonts->AddFontFromFileTTF((fonts + sb).c_str(), 22.0f * scale, &cfg, ranges);
-        if (GetFileAttributesA((fonts + "consola.ttf").c_str()) != INVALID_FILE_ATTRIBUTES)
-            u.mono = io.Fonts->AddFontFromFileTTF((fonts + "consola.ttf").c_str(), 15.0f * scale, &cfg, ranges);
-    }
+    u.scale = s;
+    u.body = add("segoeui.ttf", 16.0f * s);
     if (!u.body) u.body = io.Fonts->AddFontDefault();
-    // host style colours (TMVS accent family)
-    u.accent = ImVec4(1.00f, 0.66f, 0.28f, 1.0f);
-    u.ok = ImVec4(0.40f, 0.85f, 0.45f, 1.0f);
-    u.warn = ImVec4(1.00f, 0.78f, 0.30f, 1.0f);
-    u.bad = ImVec4(0.95f, 0.38f, 0.32f, 1.0f);
-    u.text = ImVec4(1, 1, 1, 1);
-    u.text2 = ImVec4(0.86f, 0.87f, 0.90f, 1.0f);
-    u.muted = ImVec4(0.56f, 0.58f, 0.63f, 1.0f);
-    u.surface = colors[ImGuiCol_WindowBg];
+    u.title = add("bahnschrift.ttf", 28.0f * s);
+    if (!u.title) u.title = add("seguisb.ttf", 16.0f * s);
+    u.mono = add("consola.ttf", 14.0f * s);
+    io.FontDefault = u.body;
+    u.accent = accent;
+    u.ok = ImVec4(0.24f, 0.86f, 0.52f, 1.0f);
+    u.warn = ImVec4(0.95f, 0.76f, 0.31f, 1.0f);
+    u.bad = ImVec4(1.0f, 0.36f, 0.36f, 1.0f);
+    u.text = text;
+    u.text2 = text2;
+    u.muted = muted;
+    u.surface = surface;
     return u;
 }
 
@@ -450,17 +518,27 @@ void drawBackdrop(bool dim) {
     if (dim) dl->AddRectFilled(ImVec2(0, 0), sz, IM_COL32(8, 10, 16, 150));
 }
 
+// --size WxH: the shell window's size (a popped-out page); 0 = the docked default 1180x900
+float g_shellW = 0, g_shellH = 0;
+ImVec2 g_shellMin, g_shellMax;  // last drawn shell window, for cropped shots
+
 // The host's menu shell, reduced to one page: the plugin draws inside the child.
 void drawShell(FakeHost& host, Plugin& plugin) {
     if (!host.menuOpen_) return;
     ImVec2 ds = ImGui::GetIO().DisplaySize;
     float sc = host.style_.scale;
     ImVec2 size(1180 * sc, 900 * sc);
+    if (g_shellW > 0) size = ImVec2(g_shellW, g_shellH);
     if (size.y > ds.y - 40) size.y = ds.y - 40;
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(size, ImGuiCond_Appearing);
-    if (ImGui::Begin("Horizon (preview host)  >  Legacy Randomizer", &host.menuOpen_, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
+    ImGui::SetNextWindowSize(size, g_shellW > 0 ? ImGuiCond_Always : ImGuiCond_Appearing);
+    const char* title = g_shellW > 0 ? "Legacy Randomizer" : "Horizon (preview host)  >  Legacy Randomizer";
+    if (ImGui::Begin(title, &host.menuOpen_, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings)) {
+        g_shellMin = ImGui::GetWindowPos();
+        g_shellMax = ImVec2(g_shellMin.x + ImGui::GetWindowSize().x, g_shellMin.y + ImGui::GetWindowSize().y);
         ImGui::BeginChild("##plugin_legacy-randomizer");
+        host.pageW_ = ImGui::GetContentRegionAvail().x;  // what the host reports as page_w, set right before DrawMenu
+        host.pageH_ = ImGui::GetContentRegionAvail().y;
         plugin.drawMenu();
         ImGui::EndChild();
     }
@@ -514,6 +592,56 @@ void drawFakeGamePanel(FakeHost& host, Plugin& plugin) {
 
 // ------------------------------------------------------------------ frame + capture
 
+float g_wheel = 0;  // a mouse-wheel step for the next frame (shots)
+ImVec2 g_wheelAt;
+std::function<void()> g_midFrame;  // runs once inside the next frame, after all drawing (checks)
+
+double nowMsQpc() {
+    LARGE_INTEGER c, f;
+    QueryPerformanceCounter(&c);
+    QueryPerformanceFrequency(&f);
+    return static_cast<double>(c.QuadPart) * 1000.0 / static_cast<double>(f.QuadPart);
+}
+
+// A local server that accepts connections and never answers: every request to it hangs until its
+// timeout, like a slow TMX (for the Stop timing check).
+struct StallServer {
+    SOCKET ls = INVALID_SOCKET;
+    int port = 0;
+    std::thread th;
+    std::vector<SOCKET> held;
+    bool start() {
+        WSADATA w;
+        if (WSAStartup(MAKEWORD(2, 2), &w) != 0) return false;
+        ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (ls == INVALID_SOCKET) return false;
+        sockaddr_in a = {};
+        a.sin_family = AF_INET;
+        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        a.sin_port = 0;
+        int len = sizeof a;
+        if (bind(ls, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0 || listen(ls, 16) != 0 ||
+            getsockname(ls, reinterpret_cast<sockaddr*>(&a), &len) != 0)
+            return false;
+        port = ntohs(a.sin_port);
+        th = std::thread([this] {
+            for (;;) {
+                SOCKET c = accept(ls, nullptr, nullptr);
+                if (c == INVALID_SOCKET) break;
+                held.push_back(c);  // keep it open, say nothing
+            }
+        });
+        return true;
+    }
+    void stop() {
+        if (ls != INVALID_SOCKET) closesocket(ls);
+        if (th.joinable()) th.join();
+        for (SOCKET c : held) closesocket(c);
+        held.clear();
+        WSACleanup();
+    }
+};
+
 struct App {
     FakeHost* host;
     Plugin* plugin;
@@ -529,12 +657,26 @@ struct App {
         host->pumpGame();
         ImGui_ImplDX9_NewFrame();
         ImGui_ImplWin32_NewFrame();
+        if (g_wheel != 0) {
+            // shots: scroll the page under the given point (then the mouse leaves again)
+            ImGui::GetIO().AddMousePosEvent(g_wheelAt.x, g_wheelAt.y);
+            ImGui::GetIO().AddMouseWheelEvent(0, g_wheel);
+            g_wheel = 0;
+        } else if (g_shots) {
+            ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        }
         if (g_shots) ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(g_pp.BackBufferWidth), static_cast<float>(g_pp.BackBufferHeight));
         ImGui::NewFrame();
         drawBackdrop(host->menuOpen_);
         plugin->drawOverlay();
         drawShell(*host, *plugin);
         if (!g_shots && showPanel) drawFakeGamePanel(*host, *plugin);
+        if (g_midFrame) {
+            // checks: an action in the middle of a frame, like a button click (the HUD has drawn already)
+            std::function<void()> f = std::move(g_midFrame);
+            g_midFrame = nullptr;
+            f();
+        }
         ImGui::EndFrame();
         g_dev->SetRenderState(D3DRS_ZENABLE, FALSE);
         g_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -575,7 +717,8 @@ struct App {
     }
 };
 
-bool savePng(const std::wstring& path) {
+// crop: the part of the frame to save (x0, y0, x1, y1), nullptr = all
+bool savePng(const std::wstring& path, const RECT* crop = nullptr) {
     IDirect3DSurface9* rt = nullptr;
     IDirect3DSurface9* sys = nullptr;
     if (FAILED(g_dev->GetRenderTarget(0, &rt))) return false;
@@ -583,17 +726,26 @@ bool savePng(const std::wstring& path) {
     rt->GetDesc(&d);
     bool ok = SUCCEEDED(g_dev->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &sys, nullptr)) &&
               SUCCEEDED(g_dev->GetRenderTargetData(rt, sys));
+    RECT r = {0, 0, static_cast<LONG>(d.Width), static_cast<LONG>(d.Height)};
+    if (crop) {
+        r.left = std::max<LONG>(0, crop->left);
+        r.top = std::max<LONG>(0, crop->top);
+        r.right = std::min<LONG>(static_cast<LONG>(d.Width), crop->right);
+        r.bottom = std::min<LONG>(static_cast<LONG>(d.Height), crop->bottom);
+        if (r.right <= r.left || r.bottom <= r.top) r = {0, 0, static_cast<LONG>(d.Width), static_cast<LONG>(d.Height)};
+    }
+    const UINT outW = static_cast<UINT>(r.right - r.left), outH = static_cast<UINT>(r.bottom - r.top);
     std::vector<unsigned char> bgr;
-    UINT stride = d.Width * 3;
+    UINT stride = outW * 3;
     if (ok) {
         D3DLOCKED_RECT lr;
         ok = SUCCEEDED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY));
         if (ok) {
-            bgr.resize(static_cast<size_t>(stride) * d.Height);
-            for (UINT y = 0; y < d.Height; ++y) {
-                const unsigned char* s = static_cast<const unsigned char*>(lr.pBits) + static_cast<size_t>(y) * lr.Pitch;
+            bgr.resize(static_cast<size_t>(stride) * outH);
+            for (UINT y = 0; y < outH; ++y) {
+                const unsigned char* s = static_cast<const unsigned char*>(lr.pBits) + static_cast<size_t>(y + r.top) * lr.Pitch + r.left * 4;
                 unsigned char* o = bgr.data() + static_cast<size_t>(y) * stride;
-                for (UINT x = 0; x < d.Width; ++x) {
+                for (UINT x = 0; x < outW; ++x) {
                     o[x * 3] = s[x * 4];
                     o[x * 3 + 1] = s[x * 4 + 1];
                     o[x * 3 + 2] = s[x * 4 + 2];
@@ -602,6 +754,8 @@ bool savePng(const std::wstring& path) {
             sys->UnlockRect();
         }
     }
+    d.Width = outW;
+    d.Height = outH;
     if (sys) sys->Release();
     rt->Release();
     if (!ok) return false;
@@ -632,11 +786,15 @@ bool savePng(const std::wstring& path) {
 }
 
 int g_shotFails = 0;
+bool g_quick = false;  // --quick: pages only, no run
 
 void shot(App& app, const std::string& dir, const char* name) {
     app.frames(8);
     std::string path = dir + name;
-    bool ok = savePng(toWide(path));
+    // --size: the menu shots show the window only (with a small margin)
+    RECT crop = {static_cast<LONG>(g_shellMin.x) - 12, static_cast<LONG>(g_shellMin.y) - 12, static_cast<LONG>(g_shellMax.x) + 12,
+                 static_cast<LONG>(g_shellMax.y) + 12};
+    bool ok = savePng(toWide(path), g_shellW > 0 && app.host->menuOpen_ ? &crop : nullptr);
     std::printf("%s %s\n", ok ? "wrote" : "FAILED", path.c_str());
     if (!ok) ++g_shotFails;
 }
@@ -657,13 +815,51 @@ int runShots(App& app, std::string dir) {
     panels.select("run");
     shot(app, dir, "01-start.png");
     panels.select("filters");
+    plugin.settings().atMinMs = 30000;  // show the author time range with values; the run below uses any length
+    plugin.settings().atMaxMs = 90500;
     shot(app, dir, "02-filters.png");
+    plugin.settings().atMinMs = 0;
+    plugin.settings().atMaxMs = 0;
     panels.select("rules");
     shot(app, dir, "03-rules.png");
     panels.select("layout");
     plugin.settings().layoutEdit = true;
     shot(app, dir, "04-layout-editor.png");
     plugin.settings().layoutEdit = false;
+    if (g_quick) {
+        // --quick: the pages without a run (no TMX requests), also with a fake TMNF host
+        if (g_shellW > 0) {
+            // the Advanced rows open, scrolled to the end of the page
+            plugin.setAdvancedOpen(true);
+            auto scrolled = [&](const char* page, const char* name) {
+                panels.select(page);
+                app.frames(3);
+                for (int i = 0; i < 6; ++i) {
+                    g_wheelAt = ImVec2(g_shellMax.x - 60, (g_shellMin.y + g_shellMax.y) * 0.5f);
+                    g_wheel = -20;
+                    app.frames(2);
+                }
+                shot(app, dir, name);
+            };
+            scrolled("filters", "02b-filters-advanced.png");
+            scrolled("rules", "03b-rules-advanced.png");
+            scrolled("layout", "04b-layout-end.png");
+            plugin.setAdvancedOpen(false);
+        }
+        panels.select("history");
+        shot(app, dir, "08-history.png");
+        panels.select("about");
+        shot(app, dir, "11-about.png");
+        host.game_ = HostGame::Tmnf;
+        plugin.settings().foreverSource = 2;
+        plugin.settings().atMinMs = 45000;
+        plugin.settings().atMaxMs = 12 * 60000 + 30000;
+        panels.select("filters");
+        shot(app, dir, "09-filters-forever.png");
+        panels.select("run");
+        shot(app, dir, "10-start-forever.png");
+        return g_shotFails ? 1 : 0;
+    }
     panels.select("run");
     app.frames(2);
     host.menuOpen_ = false;
@@ -707,6 +903,17 @@ int runShots(App& app, std::string dir) {
     shot(app, dir, "06-hud-compact.png");
     panels.applySplitPreset();
     app.frames(2);
+    if (g_shellW > 0) {
+        // narrow checks only: the run page during a run and the Stop confirm
+        host.menuOpen_ = true;
+        panels.select("run");
+        shot(app, dir, "12-run-live.png");
+        plugin.requestStop();
+        shot(app, dir, "13-stop-confirm.png");
+        ImGui::GetCurrentContext()->OpenPopupStack.resize(0);  // "Keep playing"
+        app.frames(1);
+        host.menuOpen_ = false;
+    }
     // gold skip, end the run
     run.goldSkip();
     app.frames(4);
@@ -718,7 +925,121 @@ int runShots(App& app, std::string dir) {
     panels.select("history");
     plugin.selectHistoryRun(0);
     shot(app, dir, "08-history.png");
+    if (g_shellW > 0) {
+        panels.select("about");
+        shot(app, dir, "11-about.png");
+    }
+    // Forever: a fake TMNF host, maps from both exchanges, a typed maximum beyond the slider's 10:00
+    host.game_ = HostGame::Tmnf;
+    plugin.settings().foreverSource = 2;
+    plugin.settings().evenSites = true;
+    plugin.settings().atMinMs = 45000;
+    plugin.settings().atMaxMs = 12 * 60000 + 30000;
+    panels.select("filters");
+    shot(app, dir, "09-filters-forever.png");
+    panels.select("run");
+    run.newRun();
+    shot(app, dir, "10-start-forever.png");
     return g_shotFails ? 1 : 0;
+}
+
+// --check-stop: Stop while the first map downloads, while a map loads and while racing. Each time the run
+// must end like a timed-out run (results + history file) and no map may be started afterwards.
+int runStopChecks(App& app) {
+    FakeHost& host = *app.host;
+    RunController& run = app.plugin->run();
+    int fails = 0;
+    auto check = [&](bool ok, const char* what) {
+        std::printf("%s %s\n", ok ? "ok  " : "FAIL", what);
+        if (!ok) ++fails;
+    };
+    // Stop in the middle of a frame (the HUD has drawn the map's thumbnail already), timed
+    auto timedStop = [&](double* callMs, double* frameMs) {
+        double c = 0;
+        g_midFrame = [&] {
+            double t0 = nowMsQpc();
+            run.stop();
+            c = nowMsQpc() - t0;
+        };
+        double f0 = nowMsQpc();
+        App::pumpMessages();
+        app.frame(false);
+        if (frameMs) *frameMs = nowMsQpc() - f0;
+        if (callMs) *callMs = c;
+    };
+    auto stopAndCheck = [&](const char* when) {
+        size_t before = app.plugin->history().runs().size();
+        int plays = host.plays_;
+        double callMs = 0, frameMs = 0;
+        timedStop(&callMs, &frameMs);
+        std::printf("     Stop (%s): call %.2f ms, frame %.2f ms\n", when, callMs, frameMs);
+        app.frames(2);
+        std::string w = std::string(" (") + when + ")";
+        check(callMs < 16.0, ("Stop returns within a frame" + w).c_str());
+        check(run.phase() == Phase::Over, ("phase is Over" + w).c_str());
+        check(run.lastRun().endedBy == "user", ("ended by the user" + w).c_str());
+        check(app.plugin->history().runs().size() == before + 1, ("history entry saved" + w).c_str());
+        // a few seconds of frames: no new PlayMapFile, the fetcher's late download is dropped
+        app.waitUntil([] { return false; }, 3000);
+        check(host.plays_ == plays, ("no map started afterwards" + w).c_str());
+        check(run.phase() == Phase::Over, ("still Over" + w).c_str());
+        run.newRun();
+        host.state_ = GameState::MainMenu;
+    };
+    std::string why;
+    host.menuOpen_ = true;
+    // 0. a request that hangs (local server that never answers, 10 s timeout): Stop, the next Start
+    //    (old code: joined the stuck worker) and a second Stop must not wait for it
+    {
+        StallServer srv;
+        if (!srv.start()) { std::printf("cannot start the local fake server\n"); return 1; }
+        setTestEndpoint("127.0.0.1", srv.port);
+        if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+        app.waitUntil([] { return false; }, 500);  // the first request is in flight by now
+        double callMs = 0, frameMs = 0;
+        timedStop(&callMs, &frameMs);
+        std::printf("     Stop (request hanging): call %.2f ms, frame %.2f ms\n", callMs, frameMs);
+        check(callMs < 16.0, "Stop returns within a frame (request hanging)");
+        check(run.phase() == Phase::Over, "phase is Over (request hanging)");
+        run.newRun();
+        double t0 = nowMsQpc();
+        bool ok = run.start(&why);
+        double startMs = nowMsQpc() - t0;
+        std::printf("     next Start: %.2f ms\n", startMs);
+        check(ok && startMs < 16.0, "the next Start does not wait for the stopped worker");
+        app.waitUntil([] { return false; }, 500);
+        timedStop(&callMs, &frameMs);
+        std::printf("     Stop again: call %.2f ms, frame %.2f ms\n", callMs, frameMs);
+        check(callMs < 16.0, "second Stop returns within a frame");
+        run.newRun();
+        // shutdown with stopped workers still in a request: cancelled, so quick
+        t0 = nowMsQpc();
+        run.fetcher().stop();
+        double downMs = nowMsQpc() - t0;
+        std::printf("     joining the stopped workers (shutdown): %.2f ms\n", downMs);
+        check(downMs < 1000.0, "shutdown does not wait for the request timeout");
+        setTestEndpoint("", 0);
+        srv.stop();
+    }
+    // 1. while the first map is being fetched (Preparing)
+    if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+    app.frames(3);
+    check(run.phase() == Phase::Preparing, "phase Preparing right after start");
+    stopAndCheck("downloading");
+    // 2. while the map is loading (PlayMapFile sent, no RACE_START yet)
+    if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+    if (!app.waitUntil([&] { return run.phase() == Phase::Loading; }, 120000)) { std::printf("no Loading phase\n"); return 1; }
+    std::shared_ptr<PreparedMap> loading = run.displayMap();
+    stopAndCheck("loading");
+    check(loading && GetFileAttributesW(toWide(loading->path).c_str()) != INVALID_FILE_ATTRIBUTES, "the map being loaded keeps its file");
+    // 3. while racing, with progress (the confirm path is UI; stop() is what its button calls)
+    if (!run.start(&why)) { std::printf("start: %s\n", why.c_str()); return 1; }
+    if (!app.waitUntil([&] { return run.phase() == Phase::Playing; }, 120000)) { std::printf("no Playing phase\n"); return 1; }
+    host.advance(90000);
+    app.frames(2);
+    stopAndCheck("racing");
+    std::printf("%d failures\n", fails);
+    return fails ? 1 : 0;
 }
 
 } // namespace
@@ -726,8 +1047,21 @@ int runShots(App& app, std::string dir) {
 int main(int argc, char** argv) {
     std::string shotsDir, data;
     HostGame game = HostGame::Eswc;
+    bool checkStop = false, noMetrics = false;
+    UINT dispW = 0, dispH = 0;  // --display WxH: the game window for the shots (default 1920x1080)
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--shots") && i + 1 < argc) shotsDir = argv[++i];
+        else if (!std::strcmp(argv[i], "--check-stop")) checkStop = true;
+        else if (!std::strcmp(argv[i], "--no-metrics")) noMetrics = true;
+        else if (!std::strcmp(argv[i], "--quick")) g_quick = true;
+        else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) {
+            int w = 0, h = 0;
+            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2 && w >= 200 && h >= 150) g_shellW = static_cast<float>(w), g_shellH = static_cast<float>(h);
+        }
+        else if (!std::strcmp(argv[i], "--display") && i + 1 < argc) {
+            int w = 0, h = 0;
+            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2 && w >= 640 && h >= 480) dispW = static_cast<UINT>(w), dispH = static_cast<UINT>(h);
+        }
         else if (!std::strcmp(argv[i], "--data") && i + 1 < argc) data = argv[++i];
         else if (!std::strcmp(argv[i], "--game") && i + 1 < argc) {
             std::string g = argv[++i];
@@ -735,7 +1069,7 @@ int main(int argc, char** argv) {
                  : g == "tmuf" ? HostGame::Tmuf : HostGame::Eswc;
         }
     }
-    g_shots = !shotsDir.empty();
+    g_shots = !shotsDir.empty() || checkStop;  // off-screen, fresh data folder
     if (data.empty()) {
         if (g_shots) {
             // fresh data folder: the screenshots show exactly one run
@@ -756,7 +1090,7 @@ int main(int argc, char** argv) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     ImGui_ImplWin32_EnableDpiAwareness();
 
-    const UINT W = g_shots ? 1920 : 1600, H = g_shots ? 1080 : 900;
+    const UINT W = dispW ? dispW : g_shots ? 1920 : 1600, H = dispH ? dispH : g_shots ? 1080 : 900;
     WNDCLASSEXW wc = {sizeof wc, CS_CLASSDC, wndProc, 0, 0, GetModuleHandleW(nullptr), nullptr, nullptr, nullptr, nullptr, L"LrUiPreview", nullptr};
     RegisterClassExW(&wc);
     DWORD style = g_shots ? WS_POPUP : WS_OVERLAPPEDWINDOW;
@@ -778,8 +1112,9 @@ int main(int argc, char** argv) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     FakeHost host(data, game);
-    host.style_ = applyTmvsStyle(1.0f);
+    host.style_ = applyHostStyle(1.0f);
     host.dev_ = g_dev;
+    host.metrics_ = !noMetrics;
     g_host = &host;
     ImGui_ImplWin32_Init(g_hwnd);
     ImGui_ImplDX9_Init(g_dev);
@@ -790,7 +1125,9 @@ int main(int argc, char** argv) {
     App app{&host, &plugin};
 
     int rc2 = 0;
-    if (g_shots) {
+    if (checkStop) {
+        rc2 = runStopChecks(app);
+    } else if (g_shots) {
         rc2 = runShots(app, shotsDir);
     } else {
         bool done = false;

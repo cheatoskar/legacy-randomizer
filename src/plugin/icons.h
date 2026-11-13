@@ -5,7 +5,11 @@
 
 namespace lr {
 
-enum class Icon { Play, Timer, Flag, Skip, Medal, Filter, Sliders, Layout, History, Info, List, Map, Controls, PopOut, Card, Stop };
+enum class Icon {
+    None, Play, Timer, Flag, Skip, Medal, Filter, Sliders, Layout, History, Info, List, Map, Controls, PopOut, Card, Stop,
+    ChevronDown, ChevronRight, Sunrise, Sun, Sunset, Moon, Route, Gauge,
+    RouteSingle, RouteMulti, RouteSymmetric  // TMX routes: one path, branching paths, mirrored paths
+};
 
 // Draws icon into the square [min, min + size].
 void drawIcon(ImDrawList* dl, Icon icon, ImVec2 min, float size, ImU32 col);

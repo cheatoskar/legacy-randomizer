@@ -69,6 +69,7 @@ std::string runToJson(const RunRecord& r) {
         const RunMapRecord& m = r.maps[i];
         o += i ? ",\n    {" : "\n    {";
         kv(o, "tmx_id", m.tmxId);
+        if (!m.site.empty()) kv(o, "site", m.site);
         kv(o, "uid", m.uid);
         kv(o, "name", m.name);
         kv(o, "author", m.author);
@@ -109,6 +110,7 @@ bool runFromJson(const std::string& text, RunRecord& out) {
             for (const Json& m : maps->arr) {
                 RunMapRecord e;
                 e.tmxId = num(m, "tmx_id");
+                e.site = str(m, "site");
                 e.uid = str(m, "uid");
                 e.name = str(m, "name");
                 e.author = str(m, "author");
@@ -155,21 +157,34 @@ bool History::save(RunRecord& r, std::string* pathOut) {
     return true;
 }
 
+std::string History::add(RunRecord& r) {
+    if (folder_.empty()) return std::string();
+    std::string name = "run-" + fileStampLocal() + ".json";
+    r.file = name;
+    runs_.insert(runs_.begin(), r);
+    return folder_ + name;
+}
+
+bool History::writeRun(const std::string& path, const std::string& json) {
+    size_t slash = path.find_last_of('\\');
+    if (slash != std::string::npos && !ensureDir(path.substr(0, slash + 1))) return false;
+    return writeFileAtomic(path, json);
+}
+
 std::set<long long> History::playedIds(const std::string& site) const {
     std::set<long long> ids;
     for (const RunRecord& r : runs_)
-        if (r.site == site)
-            for (const RunMapRecord& m : r.maps)
-                if (m.tmxId > 0) ids.insert(m.tmxId);
+        for (const RunMapRecord& m : r.maps)
+            if (m.tmxId > 0 && (m.site.empty() ? r.site : m.site) == site) ids.insert(m.tmxId);
     return ids;
 }
 
 std::set<long long> History::skippedIds(const std::string& site) const {
     std::set<long long> ids;
     for (const RunRecord& r : runs_)
-        if (r.site == site)
-            for (const RunMapRecord& m : r.maps)
-                if (m.tmxId > 0 && (m.result == "skipped" || m.result == "free_skip")) ids.insert(m.tmxId);
+        for (const RunMapRecord& m : r.maps)
+            if (m.tmxId > 0 && (m.site.empty() ? r.site : m.site) == site && (m.result == "skipped" || m.result == "free_skip"))
+                ids.insert(m.tmxId);
     return ids;
 }
 

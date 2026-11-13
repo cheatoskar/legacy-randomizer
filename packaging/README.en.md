@@ -1,23 +1,24 @@
 # Legacy Randomizer {VERSION}
 
-A Random Map Challenge (RMC) for old TrackMania games, inside the game. Press Start and the mod loads a random map from TM Exchange, you try to reach the goal medal, then the next map comes. It is a plugin for the Horizon Host.
+A Random Map Challenge (RMC) for old TrackMania games, inside the game. Press Start and the mod loads a random map from TM Exchange, you try to reach the goal medal, then the next map comes. It is a plugin for the Horizon Client.
 
 ## Supported games
 
 - TrackMania Nations ESWC, unofficial 1.80 patch exe
-- TrackMania Sunrise, Win10 repack. Sunrise: finish detection is not available yet. You have to skip maps manually.
+- TrackMania Sunrise, Win10 repack (finish detection needs Horizon Client 0.3.1 or newer)
+- TrackMania Original, Online Patch v2 exe: new and less tested. Install the Horizon Client's Original zip, then the "plugin" zip.
 
 Solo only. Nothing runs while you are online.
 
 ## Install
 
-The "with Horizon Host" zip contains the host and the plugin:
+The "with Horizon Client" zip contains the Horizon Client and the plugin:
 
 1. Unzip it into the game folder (next to TmNationsESWC.exe or TmSunrise.exe).
 2. Double-click Horizon-Install.cmd. An existing dinput8.dll of another mod becomes dinput8.chain.dll and keeps working.
 3. Start the game and press Insert.
 
-If you already have the Horizon Host, use the "plugin" zip instead: unzip it into the game folder, so that the files land in horizon\plugins\legacy-randomizer\.
+If you already have the Horizon Client, use the "plugin" zip instead: unzip it into the game folder, so that the files land in horizon\plugins\legacy-randomizer\.
 
 ## Keys
 
@@ -37,16 +38,16 @@ If you already have the Horizon Host, use the "plugin" zip instead: unzip it int
 
 ## Uninstall
 
-Delete the folder horizon\plugins\legacy-randomizer. To remove the whole host: run Horizon-Uninstall.cmd, then delete the horizon folder.
+Delete the folder horizon\plugins\legacy-randomizer. To remove the whole Horizon Client: run Horizon-Uninstall.cmd, then delete the horizon folder.
 
 ## Please be kind to TMX
 
 The mod asks the TMX API for one map at a time. Please do not start many runs in a loop and do not use it to download maps in bulk.
 
-## Credits
+## Acknowledgements
 
-- Maps and screenshots: TM Exchange (tm-exchange.com)
-- The RMC idea: Flink
-- Rules modelled after BigBang1112's RandomizerTMF (no code taken from it)
+- Flink: the idea of the Random Map Challenge
+- BigBang1112: RandomizerTMF (https://github.com/BigBang1112/randomizer-tmf) is the model for the rules and filters; no code was taken from it
+- TM Exchange (tm-exchange.com): the maps, screenshots and the API
 - Dear ImGui by Omar Cornut (MIT), see THIRD-PARTY.txt
 - Legacy Randomizer is MIT licensed, see LICENSE.txt
