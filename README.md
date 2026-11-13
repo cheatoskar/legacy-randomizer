@@ -4,9 +4,9 @@ A Random Map Challenge (RMC) inside old TrackMania games: TrackMania Nations ESW
 
 Version 0.3.1. MIT licence. Built with [Claude Code](https://claude.com/claude-code).
 
-![The HUD in a 1280x960 game window](docs/images/hud-split-1280x960.png)
+![A run in TrackMania Nations ESWC](docs/images/eswc-run.jpg)
 
-*HUD (preview render): timer, map, medals, controls and the maps of this run. The background is a synthetic stand-in, the map thumbnail and author are blanked. Rendered by `test/ui_preview.cpp`, no game running.*
+*A run in TrackMania Nations ESWC: timer, map, medals, skips and the maps of this run. Map: "hang 'em high" by LookACar (TMX 1274100); its thumbnail is blanked here.*
 
 ![The Rules page](docs/images/rules-1280x960.png)
 
