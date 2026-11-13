@@ -5,7 +5,8 @@ Eine Random Map Challenge (RMC) für alte TrackMania-Spiele, direkt im Spiel. Du
 ## Unterstützte Spiele
 
 - TrackMania Nations ESWC, inoffizielle 1.80-Patch-Exe
-- TrackMania Sunrise, Win10-Repack. Sunrise: Ziel-Erkennung gibt es noch nicht. Strecken musst du von Hand überspringen.
+- TrackMania Sunrise, Win10-Repack (Ziel-Erkennung ab Horizon Client 0.3.1)
+- TrackMania Original, Exe des Online Patch v2: neu und weniger getestet. Erst das Original-Zip des Horizon Client installieren, dann das Zip "plugin".
 
 Nur Solo. Online läuft nichts.
 

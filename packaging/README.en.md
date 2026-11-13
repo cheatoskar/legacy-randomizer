@@ -5,7 +5,8 @@ A Random Map Challenge (RMC) for old TrackMania games, inside the game. Press St
 ## Supported games
 
 - TrackMania Nations ESWC, unofficial 1.80 patch exe
-- TrackMania Sunrise, Win10 repack. Sunrise: finish detection is not available yet. You have to skip maps manually.
+- TrackMania Sunrise, Win10 repack (finish detection needs Horizon Client 0.3.1 or newer)
+- TrackMania Original, Online Patch v2 exe: new and less tested. Install the Horizon Client's Original zip, then the "plugin" zip.
 
 Solo only. Nothing runs while you are online.
 
