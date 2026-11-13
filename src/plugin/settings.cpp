@@ -63,6 +63,7 @@ void Settings::load(Host& h) {
     hudPreset = static_cast<HudPreset>(clampi(h.getInt("hud_preset", static_cast<int>(d.hudPreset)), 0, 1));
     layoutEdit = h.getInt("layout_edit", d.layoutEdit) != 0;
     hudCompact = h.getInt("hud_compact", d.hudCompact) != 0;
+    hideScriptWidgets = h.getInt("hide_script_widgets", d.hideScriptWidgets) != 0;
     hudCorner = static_cast<HudCorner>(clampi(h.getInt("hud_corner", static_cast<int>(d.hudCorner)), 0, 1));
     thumbSource = static_cast<ThumbSource>(clampi(h.getInt("thumb_source", static_cast<int>(d.thumbSource)), 0, 2));
 }
@@ -108,6 +109,7 @@ void Settings::save(Host& h) const {
     h.setInt("hud_preset", static_cast<int>(hudPreset));
     h.setInt("layout_edit", layoutEdit);
     h.setInt("hud_compact", hudCompact);
+    h.setInt("hide_script_widgets", hideScriptWidgets);
     h.setInt("hud_corner", static_cast<int>(hudCorner));
     h.setInt("thumb_source", static_cast<int>(thumbSource));
 }

@@ -1,7 +1,7 @@
 {
   "id": "legacy-randomizer",
   "name": "Legacy Randomizer",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "dll": "legacy_randomizer_plugin.dll",
   "games": ["eswc", "sunrise", "original", "tmnf", "tmuf"],
   "online": "solo-only",

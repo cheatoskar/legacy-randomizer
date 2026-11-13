@@ -225,10 +225,20 @@ void Panels::drawCurrentPage() {
 
 // ------------------------------------------------------------------ windows
 
+void Panels::needLine() {
+    const float start = ImGui::GetWindowPos().x + ImGui::GetCursorStartPos().x;
+    needWidth(ImGui::GetItemRectMax().x - start);
+}
+
 void Panels::drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool editLayout) {
     ImVec2 disp = ImGui::GetIO().DisplaySize;
     bool resized = disp.x != lastDisplay_.x || disp.y != lastDisplay_.y;
     if (resized) ++placeGen_;
+    // the widths the HUD panels grew to (drawWindow) start over with a new run, layout or screen size
+    if (!runActive || resized || editLayout || neededGen_ != placeGen_) {
+        for (float& n : neededW_) n = 0.0f;
+        neededGen_ = placeGen_;
+    }
     lastDisplay_ = disp;
     drawnCount_ = 0;
     for (const PanelDef& d : kPanels) {
@@ -249,6 +259,16 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     ImVec2 size(w.w * disp.x, w.h * disp.y), pos(w.x * disp.x, w.y * disp.y);
     if (size.x < 120) size.x = 120;
     if (size.y < 40) size.y = 40;
+    // A locked HUD panel is at least as wide as its content (buttons and counter lines are never cut off):
+    // it grows by what the content needed in the last frame; a panel at the right edge grows to the left.
+    const int idx = indexOf(d);
+    if (locked && neededW_[idx] > size.x) {
+        const float grown = std::fmin(neededW_[idx], disp.x * 0.5f);
+        const bool rightSide = w.x + w.w * 0.5f > 0.5f;
+        if (rightSide) pos.x -= grown - size.x;
+        size.x = grown;
+        if (pos.x + size.x > disp.x) pos.x = disp.x - size.x;
+    }
     if (pos.x > disp.x - 40) pos.x = disp.x - 40;
     if (pos.y > disp.y - 30) pos.y = disp.y - 30;
     if (pos.x < 0) pos.x = 0;
@@ -322,7 +342,17 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
             ImGui::Separator();
         }
         if (d.hud) {
+            contentNeed_ = 0;
+            // the window's own padding (HUD panels push a smaller one than the style's): window width - content width
+            const float frame = ImGui::GetWindowSize().x - ImGui::GetContentRegionAvail().x;
             d.draw(plugin_);
+            if (locked && contentNeed_ > 0) {
+                // what the buttons and counter lines need (needWidth): the panel is that wide from the next frame
+                // on and keeps it while the run goes on (no jumping between two widths); a new run starts over
+                const float want = std::ceil(contentNeed_ + frame);
+                if (want > ImGui::GetWindowSize().x + 0.5f) neededW_[idx] = std::fmax(neededW_[idx], want);
+            }
+            contentNeed_ = 0;
         } else {
             ImGui::BeginChild("body", ImVec2(0, 0));
             d.draw(plugin_);

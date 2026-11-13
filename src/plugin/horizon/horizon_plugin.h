@@ -29,11 +29,13 @@ extern "C" {
 #endif
 
 #define HORIZON_ABI 1
-#define HORIZON_ABI_MINOR 4 /* 1: create_texture_rgba, release_texture, save_replay
+#define HORIZON_ABI_MINOR 5 /* 1: create_texture_rgba, release_texture, save_replay
                                2: panels (register_panel ...), host flags (capture)
                                3: open_page, toasts (notify), the TM Horizon bridge (bridge_request,
                                   bridge_state), HorizonDeviceCallbacks.post_present
-                               4: ui_metrics (menu size, content scale, room for a plugin page) */
+                               4: ui_metrics (menu size, content scale, room for a plugin page)
+                               5: suspend_widgets (hide other plugins' widgets for a while),
+                                  HORIZON_PANEL_NO_BACKGROUND */
 
 /* Dear ImGui version the host is built with (IMGUI_VERSION_NUM). Plugins that draw must be built
  * with exactly this version (default imconfig.h) and attach to the host's context, see
@@ -127,6 +129,13 @@ typedef enum HorizonEventType {
 #define HORIZON_PANEL_MENU_PAGE 0x01u /* a tab on the plugin's page in the menu */
 #define HORIZON_PANEL_HUD       0x02u /* starts in its own window that stays on screen with the menu closed
                                          (e.g. a timer); the player can still bring it into the menu */
+#define HORIZON_PANEL_START_HIDDEN 0x04u /* with HUD: a widget that is off until the player shows it (layout mode
+                                            bar, or "Show" on its tab). Host 0.3.0; older hosts show it at once */
+#define HORIZON_PANEL_NO_BACKGROUND 0x08u /* with HUD: no window background or border while the menu is closed,
+                                             only what the panel draws (e.g. an input display bare in a corner).
+                                             With the menu open and in layout mode the window shows its frame
+                                             so it can be found and moved. Host 0.3.1 (ABI minor 5); older
+                                             hosts ignore it */
 
 typedef void (HORIZON_CALL* HorizonPanelDrawFn)(void* user);
 
@@ -391,7 +400,8 @@ typedef struct HorizonHostApi {
     void (HORIZON_CALL* release_texture)(HorizonPluginHandle plugin, uint64_t texture);
     /* Saves the replay of the current/last run like the game's "Save replay", without dialogs.
      * name_utf8: file name without extension ("" = the game's default name). HORIZON_ERR_NOT_SUPPORTED
-     * where the host does not do it yet (host 0.1.0: everywhere; the ESWC Autosave plugin saves on ESWC). */
+     * where the host does not do it (host 0.2.0 and later: ESWC only; Sunrise, Original and Forever return it.
+     * The Autosave plugin saves on ESWC, Sunrise and Original with its own copy of the game's calls). */
     HorizonResult (HORIZON_CALL* save_replay)(HorizonPluginHandle plugin, const char* name_utf8);
 
     /* ---- ABI minor 2 (check host->abi_minor >= 2 before use) ------------------------------------ */
@@ -432,6 +442,16 @@ typedef struct HorizonHostApi {
     /* Menu size, content scale and the room a plugin page has, so a wide page can pick fewer columns
      * instead of clipping. The pointer stays valid for the whole start. Game thread. */
     const HorizonUiMetrics* (HORIZON_CALL* ui_metrics)(void);
+
+    /* ---- ABI minor 5 (check host->abi_minor >= 5 before use) ------------------------------------ */
+    /* Hides other plugins' widgets while this plugin needs the screen (e.g. a randomizer run shows its own
+     * map card, so the Clock and Map Info script widgets would only cover it). on = 1 hides, on = 0 shows
+     * them again. plugin_id: whose widgets ("scripts"); key_prefix: panel keys that start with it ("" or
+     * NULL = every widget of that plugin). Nothing is saved: the widgets come back when this plugin calls
+     * it with on = 0, is switched off, crashes or unloads, and at the next game start. Calls of several
+     * plugins add up. Game thread. HORIZON_ERR_INVALID_ARG: no plugin_id, or this plugin's own id. */
+    HorizonResult (HORIZON_CALL* suspend_widgets)(HorizonPluginHandle plugin, const char* plugin_id, const char* key_prefix,
+                                                  int32_t on);
 } HorizonHostApi;
 
 /* ------------------------------------------------------------------ plugin exports --------------- */

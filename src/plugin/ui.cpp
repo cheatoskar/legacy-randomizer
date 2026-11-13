@@ -843,6 +843,7 @@ void Plugin::pageLayout() {
     ImGui::BeginGroup();
     ui::beginCard("HUD", Icon::Layout, colW);
     if (ui::switchRow("Show HUD", &settings_.hudVisible, "During a run.")) markDirty();
+    if (ui::switchRow("Hide Clock and Map Info", &settings_.hideScriptWidgets, "Script widgets, during a run.")) markDirty();
     ui::fieldLabel("Layout");
     static const char* const presets[] = {"Compact card", "Split"};
     static const char* const presetTips[] = {"Everything in one card.", "A panel per corner."};
@@ -1220,6 +1221,7 @@ void Plugin::panelTimer() {
     ImGui::PopFont();
     if (live) ImGui::TextColored(style_.muted, "%s, goal %s", modeShort(s->config().mode), goalTitle(s->config().goal));
     else ImGui::TextColored(style_.muted, "No run");
+    panels_.needLine();
 }
 
 void Plugin::panelMap() {
@@ -1251,6 +1253,7 @@ void Plugin::panelMedals() {
         ImGui::SameLine(0, 12 * style_.scale);
         ImGui::Text("Finished %d", s->finishedCount());
     }
+    panels_.needLine();  // the counters line is never cut: a narrow panel grows
 }
 
 void Plugin::drawControls(float width, bool withStop) {
@@ -1261,6 +1264,12 @@ void Plugin::drawControls(float width, bool withStop) {
     const float stopW = withStop ? ImGui::CalcTextSize("Stop").x + ImGui::GetStyle().FramePadding.x * 2 + 8 * style_.scale : 0.0f;
     const float rest = withStop ? width - stopW - sp : width;
     float bw = showGold ? (rest - sp) * 0.5f : rest;
+    // never narrower than the longest label (a narrow HUD panel grows to fit instead of cutting "Free skip")
+    const float pad = ImGui::GetStyle().FramePadding.x * 2 + 8 * style_.scale;
+    float labelW = 0;
+    for (const char* l : {"Free skip", "Gold skip", "Next map", "Resume map", "Another map"}) labelW = std::max(labelW, ImGui::CalcTextSize(l).x);
+    bw = std::max(bw, labelW + pad);
+    panels_.needWidth((showGold ? 2 * bw + sp : bw) + (withStop ? stopW + sp : 0.0f));
     if (!s || !run_.active()) {
         ImGui::BeginDisabled();
         ImGui::Button("Skip", ImVec2(width, 0));
@@ -1304,7 +1313,10 @@ void Plugin::panelControls(bool withStop) {
         ImGui::TextColored(run_.fetchFailing() ? style_.bad : style_.muted, "Next map: %s", run_.fetchStatus().c_str());
     ImGui::PopTextWrapPos();
     std::string hs = hotkey(hkSkip_), hg = hotkey(hkGoldSkip_);
-    if (!hs.empty() || !hg.empty()) ImGui::TextColored(style_.muted, "%s skip   %s gold skip", hs.c_str(), hg.c_str());
+    if (!hs.empty() || !hg.empty()) {
+        ImGui::TextColored(style_.muted, "%s skip   %s gold skip", hs.c_str(), hg.c_str());
+        panels_.needLine();
+    }
 }
 
 void Plugin::panelSession() {
@@ -1374,6 +1386,7 @@ void Plugin::panelCard() {
     ImGui::Text("Gold %d", s->goldCount());
     ImGui::SameLine(0, 12 * style_.scale);
     ImGui::Text("Skips %d", s->skipCount());
+    panels_.needLine();
     ImGui::PushTextWrapPos(x0 + w);
     if (!run_.notice().empty()) ImGui::TextColored(style_.warn, "%s", run_.notice().c_str());
     if (!run_.error().empty()) ImGui::TextColored(style_.bad, "%s", run_.error().c_str());
@@ -1430,6 +1443,7 @@ void Plugin::drawOverlay() {
     ui::setStyle(style_);
     Phase before = run_.phase();
     run_.update();
+    syncScriptWidgets();
     if (run_.phase() == Phase::Over && before != Phase::Over) toastDismissed_ = false;
     if (run_.phase() != Phase::Over) toastDismissed_ = true;
     if (dirty_ && !ImGui::IsAnyItemActive()) {

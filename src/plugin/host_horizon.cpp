@@ -213,6 +213,12 @@ public:
         reinterpret_cast<IDirect3DTexture9*>(static_cast<uintptr_t>(t))->Release();
     }
 
+    // ABI minor 5: hide other plugins' widgets while a run goes on
+    bool suspendWidgets(const char* pluginId, const char* keyPrefix, bool on) override {
+        if (!g_api || g_api->abi_minor < 5 || !HOST_HAS(suspend_widgets)) return false;
+        return g_api->suspend_widgets(g_self, pluginId, keyPrefix, on ? 1 : 0) == HORIZON_OK;
+    }
+
     // save_replay exists from ABI minor 1 but host 0.1.0 answers NOT_SUPPORTED everywhere: stays off.
     bool canSaveReplay() override { return false; }
     lr::HostResult saveReplay(const std::string&) override { return lr::HostResult::NotSupported; }

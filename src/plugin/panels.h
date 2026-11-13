@@ -55,6 +55,11 @@ public:
     void applySplitPreset();    // HUD panels out to the corners, kept open; the card back in the menu
     void applyCompactPreset();  // the card out (kept open), the split panels back in the menu
     void markDirty() { dirty_ = true; }
+    // While a HUD panel draws: a line or a row of buttons that needs w pixels of content width and can't be cut
+    // (buttons, counters). A locked panel grows to the widest one (drawWindow). Elsewhere it does nothing.
+    void needWidth(float w) { contentNeed_ = w > contentNeed_ ? w : contentNeed_; }
+    // The same for the item just drawn, measured from the start of the content region (a line of fixed texts).
+    void needLine();
 
 private:
     void drawWindow(const PanelDef& d, bool editLayout, bool forceShow);
@@ -64,6 +69,9 @@ private:
     int placeGen_ = 1;  // bumped when a preset places windows: positions are applied once more
     PanelState states_[16];
     int applied_[16] = {};
+    float neededW_[16] = {};  // locked HUD panels: the width their content needs (px), 0 = the saved width is enough
+    int neededGen_ = 0;       // placeGen_ the widths belong to
+    float contentNeed_ = 0;   // needWidth() of the panel being drawn
     ImVec2 lastDisplay_{0, 0};
     // locked HUD panels drawn this frame: where they were meant to end and where they really end (a panel
     // placed right under one of them follows its real height, so no gap opens when content is shorter)

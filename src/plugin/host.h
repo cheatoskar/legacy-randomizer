@@ -112,6 +112,13 @@ public:
     // Save the replay of the run that just ended (valid on RACE_END / end screen). Path UTF-8.
     virtual bool canSaveReplay() = 0;
     virtual HostResult saveReplay(const std::string& utf8Path) = 0;
+    // Hides another plugin's widgets for a while (Horizon ABI minor 5, suspend_widgets): pluginId "scripts",
+    // keyPrefix = the start of its panel keys ("" all). Nothing is saved; the host shows them again when we call
+    // with on = false, are switched off, crash or unload. false: the host can't (older host).
+    virtual bool suspendWidgets(const char* pluginId, const char* keyPrefix, bool on) {
+        (void)pluginId, (void)keyPrefix, (void)on;
+        return false;
+    }
 };
 
 } // namespace lr

@@ -57,6 +57,7 @@ struct Settings {
     HudPreset hudPreset = HudPreset::Split;
     bool layoutEdit = false;
     bool hudCompact = false;      // compact card: smaller variant
+    bool hideScriptWidgets = true; // hide the Clock and Map Info script widgets during a run (host 0.3.1+)
     HudCorner hudCorner = HudCorner::TopLeft;
     ThumbSource thumbSource = ThumbSource::Tmx;
 

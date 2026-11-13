@@ -4,6 +4,7 @@
 //
 //   ui_preview.exe                          interactive window: F8 menu, "Fake game" panel, Ctrl+F9/F10/F11
 //   ui_preview.exe --shots <dir>            renders the pages to PNG (1920x1080) and exits (few live TMX requests)
+//   ui_preview.exe --shots <dir> --display 1280x960   the same in a smaller game window (ESWC at 1280x960)
 //   ui_preview.exe --check-stop             Stop in the middle of a frame while a request hangs (local fake server,
 //                                           timed: Stop and the next Start must take < 16 ms), then while downloading,
 //                                           loading and racing (live TMX); exit code 0 = ok
@@ -1047,6 +1048,7 @@ int main(int argc, char** argv) {
     std::string shotsDir, data;
     HostGame game = HostGame::Eswc;
     bool checkStop = false, noMetrics = false;
+    UINT dispW = 0, dispH = 0;  // --display WxH: the game window for the shots (default 1920x1080)
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--shots") && i + 1 < argc) shotsDir = argv[++i];
         else if (!std::strcmp(argv[i], "--check-stop")) checkStop = true;
@@ -1055,6 +1057,10 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) {
             int w = 0, h = 0;
             if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2 && w >= 200 && h >= 150) g_shellW = static_cast<float>(w), g_shellH = static_cast<float>(h);
+        }
+        else if (!std::strcmp(argv[i], "--display") && i + 1 < argc) {
+            int w = 0, h = 0;
+            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2 && w >= 640 && h >= 480) dispW = static_cast<UINT>(w), dispH = static_cast<UINT>(h);
         }
         else if (!std::strcmp(argv[i], "--data") && i + 1 < argc) data = argv[++i];
         else if (!std::strcmp(argv[i], "--game") && i + 1 < argc) {
@@ -1084,7 +1090,7 @@ int main(int argc, char** argv) {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     ImGui_ImplWin32_EnableDpiAwareness();
 
-    const UINT W = g_shots ? 1920 : 1600, H = g_shots ? 1080 : 900;
+    const UINT W = dispW ? dispW : g_shots ? 1920 : 1600, H = dispH ? dispH : g_shots ? 1080 : 900;
     WNDCLASSEXW wc = {sizeof wc, CS_CLASSDC, wndProc, 0, 0, GetModuleHandleW(nullptr), nullptr, nullptr, nullptr, nullptr, L"LrUiPreview", nullptr};
     RegisterClassExW(&wc);
     DWORD style = g_shots ? WS_POPUP : WS_OVERLAPPEDWINDOW;

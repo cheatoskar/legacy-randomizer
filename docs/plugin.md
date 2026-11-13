@@ -11,7 +11,7 @@ Horizon Client plugin `legacy-randomizer`, version 0.3.0. Install both into
 
 | What | Version |
 |---|---|
-| Plugin ABI | `src/plugin/horizon/horizon_plugin.h` + `horizon_imgui.h`, copied verbatim from `horizon-host` commit **5ca1854** (Horizon Client 0.3.0-rc.1; ABI 1, minor 4). Update = copy both files again, then fix `src/plugin/host_horizon.cpp` only. Of minor 2–4 the plugin uses only `ui_metrics` (minor 4: scale and `page_w`), and only when `host->abi_minor >= 4`; on older hosts (minor 1) everything works as before. |
+| Plugin ABI | `src/plugin/horizon/horizon_plugin.h` + `horizon_imgui.h`, copied verbatim from `horizon-host` branch `fix-0.3.1-ui` (Horizon Client 0.3.1; ABI 1, minor 5). Update = copy both files again, then fix `src/plugin/host_horizon.cpp` only. Of minor 2–5 the plugin uses only `ui_metrics` (minor 4: scale and `page_w`, only when `host->abi_minor >= 4`) and `suspend_widgets` (minor 5: the Clock and Map Info script widgets are hidden during a run, only when `host->abi_minor >= 5`); on older hosts (minor 1) everything works as before. |
 | TMX site logos | `assets/sites/<host>.png`, 64 px, taken from TMX-Downloader 2.1 (`icons/sites`), originally the site-switch logos at `account.mania.exchange/img/logos/` (TMNF, TMU, TMN, TMS, TMO). Origin per file in `assets/sites/SOURCES.md`. They belong to Nadeo/Ubisoft and ManiaExchange and only mark which exchange the plugin uses. Embedded in the DLL as byte arrays (`src/plugin/site_logos.inc`, regenerate with `python assets/make_site_logos.py`), decoded with WIC at init, textures via `create_texture_rgba`. Nothing is fetched at runtime. |
 | Dear ImGui | **1.91.5** (`IMGUI_VERSION_NUM 19150`), `third_party/imgui` (MIT, `LICENSE.txt`), the same copy as horizon-host. Default `imconfig.h`. `HorizonPlugin_Init` returns 2 if the host reports another version. `ImTextureID` is `ImU64`. |
 
@@ -97,7 +97,11 @@ Rules (Rules page):
 
 ## Settings (host settings store)
 
-`mode`, `goal` (author/gold/silver/bronze/finished), `rmc_minutes`, `rms_*`, `free_skips`, `gold_skip`, `equal_environments`, `exclude_played`, `avoid_skipped`, `exclude_finished` (0), `banned`, `site`, `forever_source`, `even_sites`, `at_min_ms`, `at_max_ms`, `environments` (bit mask), `difficulty`, `tag`, `moods`, `routes`, `lb_type`, `vehicle`, `name`, `author`, `uploaded_after`, `uploaded_before`, `flag_in*` (-1/0/1), `exclude_unlimiter`, `require_author_time`, `auto_advance`, `advance_delay_s`, `replay_autosave` (**0**, greyed out), `hud_visible`, `hud_preset` (1 split), `layout_edit` (0), `hud_compact`, `thumb_source`, plus `win_<panel>` and `layout_version`.
+`mode`, `goal` (author/gold/silver/bronze/finished), `rmc_minutes`, `rms_*`, `free_skips`, `gold_skip`, `equal_environments`, `exclude_played`, `avoid_skipped`, `exclude_finished` (0), `banned`, `site`, `forever_source`, `even_sites`, `at_min_ms`, `at_max_ms`, `environments` (bit mask), `difficulty`, `tag`, `moods`, `routes`, `lb_type`, `vehicle`, `name`, `author`, `uploaded_after`, `uploaded_before`, `flag_in*` (-1/0/1), `exclude_unlimiter`, `require_author_time`, `auto_advance`, `advance_delay_s`, `replay_autosave` (**0**, greyed out), `hud_visible`, `hud_preset` (1 split), `layout_edit` (0), `hud_compact`, `hide_script_widgets` (1), `thumb_source`, plus `win_<panel>` and `layout_version`.
+
+During a run the Clock and Map Info script widgets of Horizon Scripts are hidden ("Hide Clock and Map Info" on HUD & layout, `hide_script_widgets`, on by default): the randomizer shows the map with its picture and the medals itself, and the two widgets sat on top of its panels. It asks the host with `suspend_widgets` (ABI 1.5, Horizon Client 0.3.1); nothing is saved, the host shows them again when the run ends, the plugin is switched off or crashes, and at the next game start. Older hosts: they stay visible.
+
+HUD panels are never narrower than their buttons and counter lines: a locked panel grows to what they need (a panel at the right edge grows to the left) and keeps that width until the run ends.
 
 Hotkeys (host registry): `skip` Ctrl+F9, `gold-skip` Ctrl+F10, `toggle-hud` Ctrl+F11, `next-map` (none). Free in host 0.1.0 (menu Insert, Autosave F9).
 

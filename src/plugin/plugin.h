@@ -11,7 +11,7 @@
 #include "settings.h"
 #include "site_logos.h"
 
-#define LR_PLUGIN_VERSION "0.3.0"
+#define LR_PLUGIN_VERSION "0.3.1"
 
 namespace lr {
 
@@ -63,6 +63,7 @@ private:
     void stopButton(ImVec2 size);  // "Stop": at once, or a confirm when the run has progress
     void stopPopup();              // the confirm, submitted once per frame (drawOverlay)
     void drawResultsToast();
+    void syncScriptWidgets();      // Clock and Map Info hidden while a run goes on (setting hideScriptWidgets)
     void ensureTexture(PreparedMap* m);
     ImFont* titleFont();
     std::string hotkey(int handle);
@@ -80,6 +81,7 @@ private:
     bool stopAsk_ = false;  // open the Stop confirm (stopPopup)
     bool advFilters_ = false, advRules_ = false;  // "Advanced" rows open
     int hkSkip_ = 0, hkGoldSkip_ = 0, hkHud_ = 0, hkNext_ = 0;
+    bool scriptWidgetsHidden_ = false;  // our suspend_widgets request is in place
 };
 
 } // namespace lr
