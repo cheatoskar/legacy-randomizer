@@ -29,6 +29,7 @@ struct Settings {
     bool excludePlayed = true;       // maps of saved runs
     bool avoidSkipped = false;       // maps skipped in saved runs
     bool excludeFinished = false;    // maps with a replay in the game's Autosaves folder
+    std::string extraAutosaveDirs;   // more replay folders for that rule, separated by '|' (see autosave_scan.h)
     std::string banned;              // TMX ids, comma separated (stored per site: banned_<site>)
     // map filters (TMX)
     SiteChoice site = SiteChoice::Auto;

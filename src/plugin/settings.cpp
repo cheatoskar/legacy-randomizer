@@ -33,6 +33,7 @@ void Settings::load(Host& h) {
     excludePlayed = h.getInt("exclude_played", d.excludePlayed) != 0;
     avoidSkipped = h.getInt("avoid_skipped", d.avoidSkipped) != 0;
     excludeFinished = h.getInt("exclude_finished", d.excludeFinished) != 0;
+    extraAutosaveDirs = h.getString("extra_autosave_dirs", "");
     banned = h.getString("banned", "");
     site = static_cast<SiteChoice>(clampi(h.getInt("site", static_cast<int>(d.site)), 0, 5));
     atMinS = clampi(h.getInt("at_min_s", d.atMinS), 0, 3600);
@@ -76,6 +77,7 @@ void Settings::save(Host& h) const {
     h.setInt("exclude_played", excludePlayed);
     h.setInt("avoid_skipped", avoidSkipped);
     h.setInt("exclude_finished", excludeFinished);
+    h.setString("extra_autosave_dirs", extraAutosaveDirs);
     h.setString("banned", banned);
     h.setInt("site", static_cast<int>(site));
     h.setInt("at_min_s", atMinS);

@@ -1,5 +1,6 @@
 #include "run.h"
 
+#include "autosave_scan.h"
 #include "util.h"
 
 namespace lr {
@@ -94,6 +95,7 @@ bool RunController::start(std::string* why) {
             // Forever / Sunrise: the user folder (Documents\TrackMania...); ESWC: <exe dir>\GameData\...
             if (!user.empty()) job.autosaveDirs.push_back(user + "Tracks\\Replays\\Autosaves\\");
             if (!game.empty()) job.autosaveDirs.push_back(game + "GameData\\Tracks\\Replays\\Autosaves\\");
+            job.autosaveDirs = mergeFolders(job.autosaveDirs, parseFolderList(settings_.extraAutosaveDirs));
             job.autosaveCache = host_.dataFolder() + "autosaves_cache.txt";
         }
         fetcher_.start(job);

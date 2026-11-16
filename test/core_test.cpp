@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,8 @@
 #include "../src/core/json.h"
 #include "../src/core/session.h"
 #include "../src/core/tmx.h"
+#include "../src/plugin/autosave_scan.h"
+#include "../src/plugin/util.h"
 
 namespace fs = std::filesystem;
 using namespace lr;
@@ -468,6 +471,85 @@ static void testReplays(const std::vector<fs::path>& dirs) {
     }
 }
 
+// ---------------------------------------------------------------- extra autosave folders
+static void testFolderList() {
+    section("extra autosave folders: list");
+    CHECK_EQ(normalizeFolder(R"(C:/a//b)"), std::string(R"(C:\a\b\)"));
+    CHECK_EQ(normalizeFolder(R"(  "C:\Replays\\"  )"), std::string(R"(C:\Replays\)"));
+    CHECK_EQ(normalizeFolder(R"(\nas\share\x)"), std::string(R"(\nas\share\x\)"));
+    CHECK_EQ(normalizeFolder("   "), std::string());
+    CHECK_EQ(normalizeFolder("\\"), std::string());
+    std::vector<std::string> v = parseFolderList(R"(C:\A|c:/a/||D:\B\|  |d:\b)");
+    CHECK_EQ(v.size(), 2u);
+    CHECK_EQ(v[0], std::string(R"(C:\A\)"));
+    CHECK_EQ(v[1], std::string(R"(D:\B\)"));
+    CHECK_EQ(joinFolderList(v), std::string(R"(C:\A\|D:\B\)"));
+    CHECK(parseFolderList("").empty());
+    CHECK(parseFolderList(joinFolderList(v)) == v);
+    CHECK(!addFolder(v, R"(C:\a)"));
+    CHECK(addFolder(v, R"(E:\c)"));
+    CHECK_EQ(v.size(), 3u);
+    // default folder added twice (other case, no trailing slash) is one entry
+    std::vector<std::string> m = mergeFolders({R"(C:\Docs\Tracks\Replays\Autosaves\)"}, {R"(c:\docs\tracks\replays\autosaves)", R"(D:\Moved\)"});
+    CHECK_EQ(m.size(), 2u);
+    CHECK_EQ(m[0], std::string(R"(C:\Docs\Tracks\Replays\Autosaves\)"));
+    CHECK_EQ(countReplays(R"(Z:\this\does\not\exist\)"), -1);
+}
+
+static std::string fakeReplay(const std::string& uid) {
+    std::string b = "GBX";
+    auto u32 = [&](unsigned v) { b.append(reinterpret_cast<const char*>(&v), 4); };
+    b += std::string("\x06\x00", 2);
+    b += "BUUR";
+    u32(0x03093000u);  // class id, low 12 bits 0
+    u32(0);            // user data size
+    u32(1);            // one header chunk entry
+    u32(0x03093001u);
+    u32(0);
+    b += "<header><map uid=\"" + uid + "\" /></header>";
+    return b;
+}
+
+static void testExtraFolderScan() {
+    section("extra autosave folders: scan");
+    fs::path root = fs::temp_directory_path() / "lr_autosave_test";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root / "default", ec);
+    fs::create_directories(root / "extra", ec);
+    auto put = [](const fs::path& p, const std::string& data) { std::ofstream(p, std::ios::binary) << data; };
+    const std::string uidA = "AAAAAAAAAAAAAAAAAAAAAAAAAAA", uidB = "BBBBBBBBBBBBBBBBBBBBBBBBBBB", uidC = "CCCCCCCCCCCCCCCCCCCCCCCCCCC";
+    put(root / "default" / "same.Replay.Gbx", fakeReplay(uidA));
+    put(root / "extra" / "same.Replay.Gbx", fakeReplay(uidB));   // same file name, other folder, other map
+    put(root / "extra" / "other.Replay.Gbx", fakeReplay(uidC));
+    put(root / "extra" / "notes.txt", "x");
+    std::string def = normalizeFolder((root / "default").string());
+    std::string ext = normalizeFolder((root / "extra").string());
+    std::string missing = normalizeFolder((root / "gone").string());
+    std::string cache = (root / "cache.txt").string();
+    CHECK_EQ(countReplays(ext), 2);
+    CHECK_EQ(countReplays(missing), -1);
+
+    std::set<std::string> fin;
+    ScanResult r = scanReplayFolders(mergeFolders({def}, {ext, missing, ext, def}), cache, fin, nullptr);
+    CHECK_EQ(r.files, 3);   // default folder and the duplicates are scanned once
+    CHECK_EQ(r.read, 3);
+    CHECK(fin.count(uidA) && fin.count(uidB) && fin.count(uidC));
+    CHECK_EQ(fin.size(), 3u);
+
+    fin.clear();  // second run: everything comes from the cache, keyed by full path
+    r = scanReplayFolders({def, ext}, cache, fin, nullptr);
+    CHECK_EQ(r.files, 3);
+    CHECK_EQ(r.read, 0);
+    CHECK_EQ(fin.size(), 3u);
+
+    fin.clear();  // without the extra folder only the default one counts
+    r = scanReplayFolders({def}, cache, fin, nullptr);
+    CHECK_EQ(fin.size(), 1u);
+    CHECK(fin.count(uidA) == 1);
+    fs::remove_all(root, ec);
+}
+
 // ---------------------------------------------------------------- auto-skip goals (RandomizerTMF modes)
 static void testGoals() {
     section("session: auto-skip goals");
@@ -574,6 +656,8 @@ int main(int argc, char** argv) {
     testGbx(maps);
     testSession();
     testGoals();
+    testFolderList();
+    testExtraFolderScan();
     {
         std::vector<fs::path> replayDirs = {R"(C:\Users\osaro\Games\TMN-ESWC-inoffiziell\GameData\Tracks\Replays\Autosaves)"};
         wchar_t* docs = nullptr;

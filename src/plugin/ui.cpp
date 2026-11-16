@@ -7,6 +7,7 @@
 
 #include "imgui.h"
 #include "imgui_internal.h"  // current window flags (locked card)
+#include "autosave_scan.h"
 #include "plugin.h"
 #include "tmtext.h"
 #include "util.h"
@@ -455,6 +456,50 @@ void Plugin::pageRules() {
     if (ui::toggle("Never a map you finished before", &settings_.excludeFinished)) markDirty();
     ui::infoTip("Reads the map of every replay in the game's Autosaves folder (Tracks > Replays > Autosaves) once and keeps a "
                 "cache. A map with an autosave was finished before.");
+    {
+        // extra replay folders (players move their autosaves elsewhere); status counts refresh every few seconds
+        static std::vector<std::string> counted;
+        static std::vector<int> counts;
+        static double countedAt = -100.0;
+        static char addBuf[260] = "";
+        std::vector<std::string> dirs = parseFolderList(settings_.extraAutosaveDirs);
+        if (dirs != counted || ImGui::GetTime() - countedAt > 3.0) {
+            counted = dirs;
+            counts.clear();
+            for (const std::string& d : dirs) counts.push_back(countReplays(d));
+            countedAt = ImGui::GetTime();
+        }
+        ImGui::BeginDisabled(!settings_.excludeFinished);
+        ImGui::TextColored(style_.muted, "Extra autosave folders");
+        ui::infoTip("More folders with replays, scanned like the Autosaves folder.");
+        int removeAt = -1;
+        for (size_t i = 0; i < dirs.size(); ++i) {
+            ImGui::PushID(static_cast<int>(i));
+            if (ImGui::SmallButton("Remove")) removeAt = static_cast<int>(i);
+            ImGui::SameLine();
+            if (counts[i] < 0) ImGui::TextColored(style_.muted, "missing");
+            else ImGui::TextColored(style_.muted, "%d replays", counts[i]);
+            ImGui::SameLine();
+            ImGui::TextUnformatted(dirs[i].c_str());
+            ImGui::PopID();
+        }
+        if (removeAt >= 0) {
+            dirs.erase(dirs.begin() + removeAt);
+            settings_.extraAutosaveDirs = joinFolderList(dirs);
+            markDirty();
+        }
+        ImGui::SetNextItemWidth(-70.0f * sc);
+        bool enter = ImGui::InputTextWithHint("##extradir", "C:\\Replays", addBuf, sizeof addBuf, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        if ((ImGui::Button("Add") || enter) && addBuf[0]) {
+            if (addFolder(dirs, addBuf)) {
+                settings_.extraAutosaveDirs = joinFolderList(dirs);
+                markDirty();
+            }
+            addBuf[0] = 0;
+        }
+        ImGui::EndDisabled();
+    }
     ui::endCard();
 
     ui::beginCard("Between maps", Icon::Flag);
