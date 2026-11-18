@@ -174,6 +174,15 @@ void parseXml(const std::string& xml, GbxMapHeader& h) {
 
 } // namespace
 
+bool isRaceMap(const GbxMapHeader& h) {
+    static const char kRace[] = "race";
+    if (h.mapType.empty()) return true;
+    if (h.mapType.size() != sizeof kRace - 1) return false;
+    for (size_t i = 0; i < h.mapType.size(); ++i)
+        if (std::tolower(static_cast<unsigned char>(h.mapType[i])) != kRace[i]) return false;
+    return true;
+}
+
 std::string percentDecode(const std::string& s) {
     std::string o;
     for (size_t i = 0; i < s.size(); ++i) {

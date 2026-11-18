@@ -240,6 +240,14 @@ static void testMapFiles() {
     CHECK(!fs::exists(base, ec));
 }
 
+static void testRaceOnly() {
+    section("race maps only");
+    GbxMapHeader h;
+    CHECK(isRaceMap(h));  // no type in the header (old maps): taken
+    for (const char* t : {"Race", "race", "RACE"}) { h.mapType = t; CHECK(isRaceMap(h)); }
+    for (const char* t : {"Puzzle", "Platform", "Stunts", "Races", "Rac"}) { h.mapType = t; CHECK(!isRaceMap(h)); }
+}
+
 static void testGbx(const fs::path& mapsDir) {
     section("gbx header");
     CHECK_EQ(percentDecode("%24000%5e%5e"), std::string("$000^^"));
@@ -710,6 +718,7 @@ int main(int argc, char** argv) {
     }
     testJson();
     testTmxHelpers();
+    testRaceOnly();
     testMapFiles();
     testHttpCancel();
     testGbx(maps);

@@ -36,6 +36,9 @@ std::string replayMapUid(const unsigned char* data, size_t size);
 
 // "%24000%5e%5e" -> "$000^^"
 std::string percentDecode(const std::string& s);
+// The map is a plain race: the header names no map type, or "Race" (any case). Puzzle, Platform and Stunts
+// maps are not (the game crashes loading some of them as a race, and the goal times mean something else).
+bool isRaceMap(const GbxMapHeader& h);
 // Removes $rgb / $w / $o ... formatting; "$$" becomes "$".
 std::string stripTmCodes(const std::string& s);
 

@@ -261,6 +261,12 @@ bool FetchWorker::fetchOne(PreparedMap& out, std::string& err) {
             deleteFile(path);
             continue;
         }
+        if (!isRaceMap(h)) {
+            if (log_) log_(LogInfo, "map " + std::to_string(info.id) + " is a " + h.mapType + " map, not a race, next one");
+            exclude(src.site, info.id);
+            deleteFile(path);
+            continue;
+        }
         PreparedMap m;
         m.site = src.site;
         m.tmx = info;
