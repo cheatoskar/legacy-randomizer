@@ -1119,7 +1119,7 @@ void Plugin::drawResults(const RunRecord& r, bool live) {
     ui::flowNext(ImGui::CalcTextSize(b).x, 22 * sc);
     ImGui::TextUnformatted(b);
     ImGui::PopFont();
-    const char* by = r.endedBy == "timer" ? "time ran out" : r.endedBy == "user" ? "stopped" : r.endedBy.c_str();
+    const char* by = r.endedBy == "timer" ? "time ran out" : r.endedBy == "user" ? "stopped" : r.endedBy == "interrupted" ? "game closed" : r.endedBy.c_str();
     // the details as pieces that wrap whole: played time, site, how it ended, start
     std::string when = r.started;
     for (char& c : when)

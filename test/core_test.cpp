@@ -22,6 +22,7 @@
 #include "../src/core/session.h"
 #include "../src/core/timefmt.h"
 #include "../src/core/tmx.h"
+#include "../src/plugin/history.h"
 
 namespace fs = std::filesystem;
 using namespace lr;
@@ -238,6 +239,38 @@ static void testMapFiles() {
     CHECK(!writeMapFile((base / "missing folder" / "x.Gbx").u8string(), bytes).ok());
     fs::remove_all(base, ec);
     CHECK(!fs::exists(base, ec));
+}
+
+static void testInterruptedRun() {
+    section("interrupted run is kept");
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec) / "lr test interrupted";
+    fs::remove_all(base, ec);
+    std::string data = base.u8string() + "\\";
+    History h;
+    h.setFolder(data);
+    CHECK(!h.recoverInterrupted());  // nothing there
+    RunRecord r;
+    r.game = "ESWC"; r.started = "2026-11-19T10:00:00"; r.endedBy = "interrupted";
+    RunMapRecord m; m.tmxId = 77; m.uid = "UID77"; m.name = "A"; m.result = "author"; m.site = "nations.tm-exchange.com";
+    r.maps.push_back(m);
+    CHECK(History::writeRun(h.checkpointPath(), runToJson(r)));
+    CHECK(h.recoverInterrupted());
+    CHECK_EQ(h.runs().size(), static_cast<size_t>(1));
+    CHECK_EQ(h.runs()[0].endedBy, std::string("interrupted"));
+    CHECK(!fs::exists(fs::u8path(h.checkpointPath()), ec));
+    History h2;
+    h2.setFolder(data);
+    h2.reload();
+    CHECK_EQ(h2.runs().size(), static_cast<size_t>(1));
+    CHECK(h2.playedIds("nations.tm-exchange.com").count(77) == 1);  // the recovered maps count as played
+    // no finished map yet: nothing to save, the file is removed
+    RunRecord empty; empty.game = "ESWC";
+    CHECK(History::writeRun(h2.checkpointPath(), runToJson(empty)));
+    CHECK(!h2.recoverInterrupted());
+    CHECK(!fs::exists(fs::u8path(h2.checkpointPath()), ec));
+    CHECK_EQ(h2.runs().size(), static_cast<size_t>(1));
+    fs::remove_all(base, ec);
 }
 
 static void testRaceOnly() {
@@ -719,6 +752,7 @@ int main(int argc, char** argv) {
     testJson();
     testTmxHelpers();
     testRaceOnly();
+    testInterruptedRun();
     testMapFiles();
     testHttpCancel();
     testGbx(maps);

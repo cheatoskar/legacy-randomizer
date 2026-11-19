@@ -89,6 +89,7 @@ private:
     void beginMap();
     void mapResolved(bool goal);
     void endRun(const char* by);
+    void writeCheckpoint();  // the run so far, for a crash
     void setError(const std::string& e);
     void releaseMap(std::shared_ptr<PreparedMap>& m);
     std::shared_ptr<PreparedMap> takeNext();

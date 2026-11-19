@@ -41,6 +41,10 @@ public:
     // the caller writes runToJson(r) there (writeRun, any thread)
     std::string add(RunRecord& r);
     static bool writeRun(const std::string& path, const std::string& json);
+    // The run in progress is written here after every map. A normal end deletes it; a game that crashed
+    // leaves it, and recoverInterrupted() (once at start) turns it into a saved run "interrupted".
+    std::string checkpointPath() const;
+    bool recoverInterrupted();
     const std::vector<RunRecord>& runs() const { return runs_; }
     std::set<long long> playedIds(const std::string& site) const;  // TMX ids of every map in saved runs of that site
     std::set<long long> skippedIds(const std::string& site) const; // TMX ids skipped in saved runs of that site

@@ -476,7 +476,14 @@ void RunController::mapResolved(bool goal) {
     }
     waitUser_ = goal && !settings_.autoAdvance;
     advanceAt_ = goal ? now + settings_.advanceDelayS * 1000.0 : now;
+    writeCheckpoint();
     pump();
+}
+
+void RunController::writeCheckpoint() {
+    const std::string path = history_.checkpointPath();
+    if (path.empty() || !session_) return;
+    History::writeRun(path, runToJson(snapshot("interrupted")));  // a small file; a failure only loses the safety net
 }
 
 RunRecord RunController::snapshot(const char* by) const {
@@ -534,8 +541,12 @@ void RunController::endRun(const char* by) {
     if (lastPath_.empty()) {
         setError("Could not save the run file.");
     } else {
-        std::string path = lastPath_, json = runToJson(last_);
-        saver_ = std::thread([this, path, json] { saveState_ = History::writeRun(path, json) ? 1 : 2; });
+        std::string path = lastPath_, json = runToJson(last_), cp = history_.checkpointPath();
+        saver_ = std::thread([this, path, json, cp] {
+            const bool ok = History::writeRun(path, json);
+            if (ok && !cp.empty()) deleteFile(cp);  // the run is saved for real now
+            saveState_ = ok ? 1 : 2;
+        });
     }
     host_.log(LogInfo, std::string("run ended (") + by + "): AT " + std::to_string(last_.authors) + ", gold " +
                            std::to_string(last_.golds) + ", skips " + std::to_string(last_.skips));

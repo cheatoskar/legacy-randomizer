@@ -9,7 +9,9 @@ Plugin::~Plugin() { shutdown(); }
 void Plugin::init() {
     settings_.load(host_);
     history_.setFolder(host_.dataFolder());
+    const bool recovered = history_.recoverInterrupted();
     history_.reload();
+    if (recovered) host_.log(LogInfo, "the last run was cut off (game closed or crashed): saved up to its last finished map");
     panels_.load(host_);
     logos_.decode();
     hkSkip_ = host_.registerHotkey("skip", "Randomizer: skip map", "Ctrl+F9", [this] { run_.skip(); });
