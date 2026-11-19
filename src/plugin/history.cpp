@@ -165,6 +165,23 @@ std::string History::add(RunRecord& r) {
     return folder_ + name;
 }
 
+std::string History::checkpointPath() const { return folder_.empty() ? std::string() : folder_ + "_inprogress.json"; }
+
+bool History::recoverInterrupted() {
+    const std::string cp = checkpointPath();
+    if (cp.empty()) return false;
+    std::string text;
+    if (!readFile(cp, text)) return false;
+    RunRecord r;
+    bool ok = runFromJson(text, r) && !r.maps.empty();
+    if (ok) {
+        r.endedBy = "interrupted";
+        ok = save(r, nullptr);
+    }
+    deleteFile(cp);  // also an unreadable or empty one: nothing to keep
+    return ok;
+}
+
 bool History::writeRun(const std::string& path, const std::string& json) {
     size_t slash = path.find_last_of('\\');
     if (slash != std::string::npos && !ensureDir(path.substr(0, slash + 1))) return false;

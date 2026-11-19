@@ -12,7 +12,7 @@ link /nologo /DLL /MACHINE:X86 /SAFESEH /DYNAMICBASE /NXCOMPAT /NODEFAULTLIB /EN
 cl /nologo /c /O2 /MT /GS /W4 /WX /EHsc /std:c++17 /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /I src /Fo"build\\" src\spike.cpp src\reflect\reflect.cpp src\gamectl\gamectl.cpp src\core\gbx.cpp || exit /b 1
 link /nologo /DLL /MACHINE:X86 /SAFESEH /DYNAMICBASE /NXCOMPAT /OUT:dist\legacy_randomizer.dll /IMPLIB:build\legacy_randomizer.lib build\spike.obj build\reflect.obj build\gamectl.obj build\gbx.obj user32.lib kernel32.lib shell32.lib || exit /b 1
 if not exist build\test mkdir build\test
-cl /nologo /O2 /MT /GS /W4 /WX /EHsc /std:c++17 /DWIN32_LEAN_AND_MEAN /Fo"build\test\\" /Fe"build\test\core_test.exe" test\core_test.cpp src\core\tmx.cpp src\core\session.cpp src\core\gbx.cpp wininet.lib user32.lib kernel32.lib /link /MACHINE:X86 || exit /b 1
+cl /nologo /O2 /MT /GS /W4 /WX /EHsc /std:c++17 /DWIN32_LEAN_AND_MEAN /Fo"build\test\\" /Fe"build\test\core_test.exe" test\core_test.cpp src\plugin\history.cpp src\plugin\util.cpp src\core\tmx.cpp src\core\session.cpp src\core\gbx.cpp wininet.lib user32.lib kernel32.lib /link /MACHINE:X86 || exit /b 1
 rem Horizon plugin dist\legacy_randomizer_plugin.dll and the UI preview build\test\ui_preview.exe (Dear ImGui 1.91.5, third_party\imgui)
 if not exist build\imgui mkdir build\imgui
 if not exist build\plugin mkdir build\plugin
