@@ -23,6 +23,7 @@
 #include "../src/core/timefmt.h"
 #include "../src/core/tmx.h"
 #include "../src/plugin/history.h"
+#include "../src/plugin/settings.h"
 
 namespace fs = std::filesystem;
 using namespace lr;
@@ -271,6 +272,34 @@ static void testInterruptedRun() {
     CHECK(!fs::exists(fs::u8path(h2.checkpointPath()), ec));
     CHECK_EQ(h2.runs().size(), static_cast<size_t>(1));
     fs::remove_all(base, ec);
+}
+
+static void testSettingsPerGame() {
+    section("site, environments and car per game");
+    // The shared file was last written by Original: site Original, Snow + Desert, car Snow.
+    Settings s;
+    s.site = SiteChoice::Original; s.envMask = 0x3; s.vehicle = 1;
+    s.fitToGame(HostGame::Sunrise, -1, -1, -1);  // Sunrise, no own values yet: nothing of Original is carried over
+    CHECK(s.site == SiteChoice::Auto);
+    CHECK_EQ(s.envMask, 0);
+    CHECK_EQ(s.vehicle, 0);
+    const int* ids = nullptr;
+    CHECK_EQ(sourceEnvironments(sourceSites(s, HostGame::Sunrise), HostGame::Sunrise, &ids), 3);
+    CHECK_EQ(ids[0], 4);  // Island, Coast, Bay
+    // Original reads its own values back, whatever Sunrise left in the shared file
+    Settings o;
+    o.site = SiteChoice::Auto; o.envMask = 0x38; o.vehicle = 4;
+    o.fitToGame(HostGame::Original, static_cast<int>(SiteChoice::Original), 0x3, 1);
+    CHECK(o.site == SiteChoice::Original);
+    CHECK_EQ(o.envMask, 0x3);
+    CHECK_EQ(o.vehicle, 1);
+    // A shared value that fits this game is kept on the first start (one game only: nothing changes)
+    Settings e;
+    e.site = SiteChoice::Original; e.envMask = 0x2; e.vehicle = 2;
+    e.fitToGame(HostGame::Original, -1, -1, -1);
+    CHECK(e.site == SiteChoice::Original);
+    CHECK_EQ(e.envMask, 0x2);
+    CHECK_EQ(e.vehicle, 2);
 }
 
 static void testRaceOnly() {
@@ -752,6 +781,7 @@ int main(int argc, char** argv) {
     testJson();
     testTmxHelpers();
     testRaceOnly();
+    testSettingsPerGame();
     testInterruptedRun();
     testMapFiles();
     testHttpCancel();

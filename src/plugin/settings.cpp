@@ -8,6 +8,18 @@ namespace {
 
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+std::string gameKey(HostGame g) {
+    switch (g) {
+    case HostGame::Eswc: return "eswc";
+    case HostGame::Sunrise: return "sunrise";
+    case HostGame::Original: return "original";
+    case HostGame::Tmnf: return "tmnf";
+    case HostGame::Tmuf: return "tmuf";
+    case HostGame::Unknown: break;
+    }
+    return "unknown";
+}
+
 const char* modeKey(Mode m) { return m == Mode::RMC ? "rmc" : m == Mode::RMS ? "rms" : "free"; }
 Mode modeFrom(const std::string& s) { return s == "rms" ? Mode::RMS : s == "free" ? Mode::FreePlay : Mode::RMC; }
 
@@ -66,6 +78,22 @@ void Settings::load(Host& h) {
     hideScriptWidgets = h.getInt("hide_script_widgets", d.hideScriptWidgets) != 0;
     hudCorner = static_cast<HudCorner>(clampi(h.getInt("hud_corner", static_cast<int>(d.hudCorner)), 0, 1));
     thumbSource = static_cast<ThumbSource>(clampi(h.getInt("thumb_source", static_cast<int>(d.thumbSource)), 0, 2));
+    const HostGame g = h.game();
+    const std::string k = gameKey(g);
+    fitToGame(g, h.getInt(("site." + k).c_str(), -1), h.getInt(("environments." + k).c_str(), -1),
+              h.getInt(("vehicle." + k).c_str(), -1));
+}
+
+void Settings::fitToGame(HostGame g, int siteForGame, int envForGame, int vehicleForGame) {
+    if (siteForGame >= 0) site = static_cast<SiteChoice>(clampi(siteForGame, 0, 5));
+    else if (site != SiteChoice::Auto && siteFor(site, g) != siteFor(SiteChoice::Auto, g)) site = SiteChoice::Auto;
+    const int* ids = nullptr;
+    const int n = sourceEnvironments(sourceSites(*this, g), g, &ids);
+    int valid = 0;
+    for (int i = 0; i < n; ++i) valid |= 1 << (ids[i] - 1);
+    envMask = (envForGame >= 0 ? clampi(envForGame, 0, 127) : envMask) & valid;
+    if (vehicleForGame >= 0) vehicle = clampi(vehicleForGame, 0, 7);
+    if (vehicle > 0 && !(valid & (1 << (vehicle - 1)))) vehicle = 0;
 }
 
 void Settings::save(Host& h) const {
@@ -112,6 +140,10 @@ void Settings::save(Host& h) const {
     h.setInt("hide_script_widgets", hideScriptWidgets);
     h.setInt("hud_corner", static_cast<int>(hudCorner));
     h.setInt("thumb_source", static_cast<int>(thumbSource));
+    const std::string k = gameKey(h.game());
+    h.setInt(("site." + k).c_str(), static_cast<int>(site));
+    h.setInt(("environments." + k).c_str(), envMask);
+    h.setInt(("vehicle." + k).c_str(), vehicle);
 }
 
 SessionConfig Settings::sessionConfig() const {
