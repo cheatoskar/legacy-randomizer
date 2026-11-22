@@ -1452,7 +1452,7 @@ void Plugin::drawOverlay() {
     }
     bool menu = host_.menuOpen();
     if (run_.phase() == Phase::Over && !toastDismissed_ && !menu) drawResultsToast();
-    panels_.drawWindows(menu, run_.active(), settings_.hudVisible, settings_.layoutEdit);
+    panels_.drawWindows(menu, run_.active(), settings_.hudVisible, settings_.layoutEdit, host_.layoutMode());
     stopPopup();
     panels_.saveIfDirty(host_);
 }

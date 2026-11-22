@@ -98,6 +98,7 @@ public:
     bool isOnline() override { return HOST_HAS(is_online) && g_api->is_online() != 0; }
     bool actionsAllowed() override { return !HOST_HAS(actions_allowed) || g_api->actions_allowed(g_self) != 0; }
     bool menuOpen() override { return HOST_HAS(menu_open) && g_api->menu_open() != 0; }
+    bool layoutMode() override { return HOST_HAS(host_flags) && (g_api->host_flags() & HORIZON_HOST_FLAG_LAYOUT) != 0; }
 
     lr::HostResult playMapFile(const std::string& path) override {
         if (!HOST_HAS(play_map_file)) return lr::HostResult::NotSupported;

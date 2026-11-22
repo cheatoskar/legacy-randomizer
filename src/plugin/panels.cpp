@@ -230,12 +230,12 @@ void Panels::needLine() {
     needWidth(ImGui::GetItemRectMax().x - start);
 }
 
-void Panels::drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool editLayout) {
+void Panels::drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool editLayout, bool hostLayout) {
     ImVec2 disp = ImGui::GetIO().DisplaySize;
     bool resized = disp.x != lastDisplay_.x || disp.y != lastDisplay_.y;
     if (resized) ++placeGen_;
     // the widths the HUD panels grew to (drawWindow) start over with a new run, layout or screen size
-    if (!runActive || resized || editLayout || neededGen_ != placeGen_) {
+    if (!runActive || resized || editLayout || hostLayout || neededGen_ != placeGen_) {
         for (float& n : neededW_) n = 0.0f;
         neededGen_ = placeGen_;
     }
@@ -245,9 +245,10 @@ void Panels::drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool ed
         const PanelState& w = state(d);
         if (!w.detached) continue;
         // HUD panels without a run stay hidden (empty "No map yet" cards), except while arranging the layout.
-        bool show = d.hud ? ((runActive && (menuOpen || (w.keepOpen && hudVisible))) || (menuOpen && editLayout))
+        bool show = d.hud ? ((runActive && (menuOpen || (w.keepOpen && hudVisible))) || (menuOpen && editLayout) ||
+                             (hostLayout && w.keepOpen))
                           : (menuOpen || w.keepOpen);
-        if (show) drawWindow(d, editLayout && menuOpen, false);
+        if (show) drawWindow(d, (editLayout && menuOpen) || hostLayout, false);
     }
 }
 

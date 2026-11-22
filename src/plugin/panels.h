@@ -50,7 +50,8 @@ public:
     void select(const char* key) { current_ = key; }
     const std::string& current() const { return current_; }
     // every frame from DrawOverlay: the popped-out windows
-    void drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool editLayout);
+    // hostLayout: Horizon's layout mode is on (the HUD can be moved then, also with the menu closed)
+    void drawWindows(bool menuOpen, bool runActive, bool hudVisible, bool editLayout, bool hostLayout = false);
 
     void applySplitPreset();    // HUD panels out to the corners, kept open; the card back in the menu
     void applyCompactPreset();  // the card out (kept open), the split panels back in the menu
