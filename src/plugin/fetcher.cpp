@@ -267,6 +267,13 @@ bool FetchWorker::fetchOne(PreparedMap& out, std::string& err) {
             deleteFile(path);
             continue;
         }
+        if (!h.uid.empty() && finished_.count(h.uid)) {
+            if (log_) log_(LogInfo, "map " + std::to_string(info.id) + " was finished before (autosave), next one");
+            exclude(src.site, info.id);
+            deleteFile(path);
+            ++rejected;
+            continue;
+        }
         PreparedMap m;
         m.site = src.site;
         m.tmx = info;

@@ -62,6 +62,11 @@ struct Settings {
     ThumbSource thumbSource = ThumbSource::Tmx;
 
     void load(Host& h);
+    // The TMX site, its environments and its car belong to one game. Horizon Client 0.3.1+ shares this module's
+    // settings between all games, so these three are also kept per game ("site.sunrise", ...). Arguments: the
+    // per-game values saved before, -1 = none yet. Without one, a shared value that does not fit this game (an
+    // Original site in Sunrise, Snow in Sunrise) is dropped instead of carried over.
+    void fitToGame(HostGame g, int siteForGame, int envForGame, int vehicleForGame);
     void save(Host& h) const;
     void resetToDefaults() { *this = Settings(); }
 
