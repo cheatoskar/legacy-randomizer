@@ -44,7 +44,7 @@ public:
     void skip();
     void goldSkip();
     void nextNow();                // leave now (auto-advance off, or don't want to wait)
-    void resume();                 // replay the current map after the player left it to the menu
+    void resume();                 // replay the current map after the player left it (menu, or another map's race)
     void dropPendingMap();         // the pending map did not start: take another one
     void newRun();                 // Over -> Idle
 
@@ -73,6 +73,7 @@ public:
     Site site() const { return site_; }
     const std::vector<Site>& sites() const { return sites_; }  // the run's TMX sites (Forever "both": two)
     bool forever() const;
+    void playCurrentAgain();  // resume(): load the current map, from the main menu
     const RunRecord& lastRun() const { return last_; }
     RunRecord snapshot(const char* endedBy = "") const;  // the run so far, as it would be saved
     std::string lastRunPath() const { return lastPath_; }
@@ -120,6 +121,8 @@ private:
     bool callQueued_ = false;   // a RunOnGameThread call of ours is still pending
     bool leaveSent_ = false;
     bool reloading_ = false;
+    bool resumeAfterMenu_ = false;  // Resume pressed in another map's race: the race is left, then the map loads
+    double resumeUntil_ = 0;
     bool manualLeave_ = false;  // the host can't leave the map: the player does it
     bool replayTried_ = false;
     bool hostHasRaceEvents_ = false;  // seen RACE_START/CHECKPOINT/FINISH from this host at least once

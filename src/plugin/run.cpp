@@ -74,7 +74,7 @@ bool RunController::start(std::string* why) {
     releaseMap(pending_);
     replays_.clear();
     curReplay_.clear();
-    onOurMap_ = userLeft_ = goalReached_ = waitUser_ = raceEnded_ = leaveSent_ = reloading_ = manualLeave_ = false;
+    onOurMap_ = userLeft_ = goalReached_ = waitUser_ = raceEnded_ = leaveSent_ = reloading_ = manualLeave_ = resumeAfterMenu_ = false;
     loadFailures_ = 0;
     retryAt_ = 0;
     notice_.clear();
@@ -215,9 +215,46 @@ void RunController::nextNow() {
     pump();
 }
 
+// Resume works from any state the player can be in after leaving: the main menu, or a race of another map (e.g. one
+// started from TM Horizon's Play). A race is left first (like the leave after a goal), then the map loads from the
+// menu (pump). Before, Resume did nothing outside the main menu.
 void RunController::resume() {
-    if (phase_ != Phase::Playing || !userLeft_ || !cur_ || callQueued_) return;
-    if (host_.gameState() != GameState::MainMenu || !host_.actionsAllowed()) return;
+    if (phase_ != Phase::Playing || !userLeft_ || !cur_ || callQueued_ || !host_.actionsAllowed()) return;
+    GameState gs = host_.gameState();
+    if (gs == GameState::MainMenu) {
+        playCurrentAgain();
+        return;
+    }
+    if (gs == GameState::SoloRace && forever()) {
+        notice_ = "Quit this map (Esc > Quit), then press Resume.";
+        return;
+    }
+    if (gs != GameState::SoloRace && gs != GameState::EndRace) {
+        notice_ = gs == GameState::Editor ? "Leave the editor, then press Resume."
+                  : gs == GameState::Replay ? "Leave the replay, then press Resume."
+                                            : "Wait for the main menu, then press Resume.";
+        return;
+    }
+    callQueued_ = true;
+    std::shared_ptr<bool> alive = alive_;
+    host_.runOnGameThread([this, alive] {
+        if (!*alive) return;
+        callQueued_ = false;
+        if (phase_ != Phase::Playing || !userLeft_) return;
+        HostResult r = host_.returnToMenu();
+        if (r == HostResult::Ok) {
+            resumeAfterMenu_ = true;
+            resumeUntil_ = host_.nowMs() + 15000;
+            notice_ = "Leaving this map, then loading the run's map";
+            host_.log(LogInfo, "resume: leaving the race of another map first");
+        } else {
+            setError(std::string("Could not leave this map: ") + resultText(r) + ". Quit it (Esc > Quit), then press Resume.");
+        }
+    });
+}
+
+void RunController::playCurrentAgain() {
+    resumeAfterMenu_ = false;
     callQueued_ = true;
     std::shared_ptr<bool> alive = alive_;
     std::shared_ptr<PreparedMap> m = cur_;
@@ -338,6 +375,15 @@ void RunController::pump() {
         if (now >= advanceAt_) leaveMap();
         return;
     case Phase::Playing:
+        if (resumeAfterMenu_) {
+            if (!userLeft_ || now > resumeUntil_) {
+                resumeAfterMenu_ = false;
+                if (userLeft_) notice_ = "You left the map. Resume it or skip it.";
+            } else if (gs == GameState::MainMenu && !callQueued_) {
+                playCurrentAgain();
+            }
+            return;
+        }
         if (userLeft_ && gs == GameState::MainMenu && !reloading_)
             notice_ = "You left the map. Resume it or skip it.";
         // hosts that deliver race events on Sunrise (host `next`) need no hint
@@ -451,7 +497,7 @@ void RunController::beginMap() {
     mapSites_.push_back(cur_->site);
     phase_ = Phase::Playing;
     onOurMap_ = true;
-    userLeft_ = goalReached_ = waitUser_ = raceEnded_ = reloading_ = false;
+    userLeft_ = goalReached_ = waitUser_ = raceEnded_ = reloading_ = resumeAfterMenu_ = false;
     curReplay_.clear();
     notice_.clear();
     error_.clear();
