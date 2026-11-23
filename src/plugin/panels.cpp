@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "imgui.h"
+#include "imgui_internal.h"  // BringWindowToDisplayBack: locked HUD panels stay behind the Horizon menu
 #include "plugin.h"
 #include "widgets.h"
 
@@ -42,9 +43,11 @@ void placeDefault(const PanelDef& d, PanelState& w) {
     for (const Place& p : kDefaults)
         if (!std::strcmp(p.key, d.key)) {
             w.x = p.x, w.y = p.y, w.w = p.w, w.h = p.h;
+            w.sized = false;
             return;
         }
     w.x = 0.30f, w.y = 0.10f, w.w = 0.34f, w.h = 0.62f;
+    w.sized = false;
 }
 
 const char* const kSplit[] = {"timer", "map", "medals", "controls", "session"};
@@ -68,12 +71,14 @@ void Panels::load(Host& h) {
     for (const PanelDef& d : kPanels) {
         PanelState& w = state(d);
         std::string v = h.getString((std::string("win_") + d.key).c_str(), "");
-        int det = 0, min = 0, keep = 0, op = 100;
+        int det = 0, min = 0, keep = 0, op = 100, sized = 0;
         float x = 0, y = 0, ww = 0, hh = 0;
-        if (!v.empty() && sscanf_s(v.c_str(), "%d,%d,%d,%f,%f,%f,%f,%d", &det, &min, &keep, &x, &y, &ww, &hh, &op) == 8) {
+        // 8 fields up to 0.3.4, the 9th (sized) since 0.3.5
+        if (!v.empty() && sscanf_s(v.c_str(), "%d,%d,%d,%f,%f,%f,%f,%d,%d", &det, &min, &keep, &x, &y, &ww, &hh, &op, &sized) >= 8) {
             w.detached = det != 0, w.minimized = min != 0, w.keepOpen = keep != 0;
             w.x = x, w.y = y, w.w = ww, w.h = hh;
             w.opacity = op < 20 ? 20 : (op > 100 ? 100 : op);
+            w.sized = sized != 0;
         }
     }
     if (h.getInt("layout_version", 0) == 0) {
@@ -89,8 +94,8 @@ void Panels::saveIfDirty(Host& h) {
     for (const PanelDef& d : kPanels) {
         const PanelState& w = state(d);
         char b[160];
-        std::snprintf(b, sizeof b, "%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%d", w.detached ? 1 : 0, w.minimized ? 1 : 0, w.keepOpen ? 1 : 0, w.x, w.y,
-                      w.w, w.h, w.opacity);
+        std::snprintf(b, sizeof b, "%d,%d,%d,%.4f,%.4f,%.4f,%.4f,%d,%d", w.detached ? 1 : 0, w.minimized ? 1 : 0, w.keepOpen ? 1 : 0, w.x,
+                      w.y, w.w, w.h, w.opacity, w.sized ? 1 : 0);
         h.setString((std::string("win_") + d.key).c_str(), b);
     }
 }
@@ -262,8 +267,9 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     if (size.y < 40) size.y = 40;
     // A locked HUD panel is at least as wide as its content (buttons and counter lines are never cut off):
     // it grows by what the content needed in the last frame; a panel at the right edge grows to the left.
+    // Not when the player resized it in layout mode: that width is kept and the content wraps to it.
     const int idx = indexOf(d);
-    if (locked && neededW_[idx] > size.x) {
+    if (locked && !w.sized && neededW_[idx] > size.x) {
         const float grown = std::fmin(neededW_[idx], disp.x * 0.5f);
         const bool rightSide = w.x + w.w * 0.5f > 0.5f;
         if (rightSide) pos.x -= grown - size.x;
@@ -307,6 +313,9 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     }
     const bool visible = ImGui::Begin(name.c_str(), locked ? nullptr : &open, flags);
     if (d.hud) ImGui::PopStyleVar(2);
+    // Behind the Horizon menu like the host's own widgets: a panel clicked while it was movable (layout mode) was
+    // brought to the front and stayed above the menu afterwards.
+    if (locked) ImGui::BringWindowToDisplayBack(ImGui::GetCurrentWindow());
     const bool collapsed = ImGui::IsWindowCollapsed();
     if (locked && drawnCount_ < 16) {
         float bottom = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
@@ -318,6 +327,8 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
         bool moved = !collapsed && (std::fabs(nx - w.x) > 0.0005f || std::fabs(ny - w.y) > 0.0005f || std::fabs(nw - w.w) > 0.0005f ||
                                     std::fabs(nh - w.h) > 0.0005f);
         if (collapsed != w.minimized || moved) {
+            // a new size (not only a new place) of a HUD panel: the player's width from now on
+            if (!collapsed && d.hud && (std::fabs(nw - w.w) > 0.0005f || std::fabs(nh - w.h) > 0.0005f)) w.sized = true;
             w.minimized = collapsed;
             if (!collapsed) w.x = nx, w.y = ny, w.w = nw, w.h = nh;
             dirty_ = true;
@@ -329,18 +340,28 @@ void Panels::drawWindow(const PanelDef& d, bool editLayout, bool) {
     }
     if (visible && !collapsed) {
         if (!locked) {
-            if (ImGui::SmallButton("Window options")) ImGui::OpenPopup("windowOptions");
+            // HUD panels: the options on right-click, like Horizon's widgets (no button: the content does not move
+            // down while the layout is edited); pages popped out keep the button
+            if (!d.hud && ImGui::SmallButton("Window options")) ImGui::OpenPopup("windowOptions");
+            if (d.hud && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+                ImGui::OpenPopup("windowOptions");
             if (ImGui::BeginPopup("windowOptions")) {
                 if (ui::toggle("Keep open when the menu closes", &w.keepOpen)) dirty_ = true;
                 ImGui::SetNextItemWidth(180 * ui::style().scale);
                 if (ImGui::SliderInt("Opacity", &w.opacity, 20, 100, "%d%%")) dirty_ = true;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("The panel's background.");
+                if (d.hud && w.sized && ImGui::Button("Fit to content")) {
+                    w.sized = false;
+                    dirty_ = true;
+                    ImGui::CloseCurrentPopup();
+                }
                 if (ImGui::Button("Back to the menu")) {
                     open = false;
                     ImGui::CloseCurrentPopup();
                 }
                 ImGui::EndPopup();
             }
-            ImGui::Separator();
+            if (!d.hud) ImGui::Separator();
         }
         if (d.hud) {
             contentNeed_ = 0;

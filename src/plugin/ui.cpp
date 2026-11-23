@@ -17,6 +17,15 @@ namespace lr {
 
 namespace {
 
+// The next counter ("AT 3", "Gold 2", ...) on the same line when it still fits the panel, else on a new line: a
+// HUD panel the player made narrow wraps its counters instead of cutting them.
+void counterBreak(const char* next, bool dot, float spacing) {
+    ImGui::SameLine(0, spacing);
+    float w = ImGui::CalcTextSize(next).x;
+    if (dot) w += ImGui::GetTextLineHeight() * 0.44f + 2 + ImGui::GetStyle().ItemInnerSpacing.x;
+    if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+}
+
 const ImVec4 kAuthor(0.30f, 0.82f, 0.47f, 1.0f);
 const ImVec4 kGold(1.00f, 0.80f, 0.22f, 1.0f);
 const ImVec4 kSilver(0.78f, 0.80f, 0.85f, 1.0f);
@@ -1240,20 +1249,24 @@ void Plugin::panelMedals() {
     const Session* s = run_.session();
     if (!s) return;
     ImGui::Separator();
+    char t[64];
     ui::medalDot(kAuthor);
     ImGui::Text("AT %d", s->authorCount());
-    ImGui::SameLine(0, 12 * style_.scale);
+    std::snprintf(t, sizeof t, "Gold %d", s->goldCount());
+    counterBreak(t, true, 12 * style_.scale);
     ui::medalDot(kGold);
-    ImGui::Text("Gold %d", s->goldCount());
-    ImGui::SameLine(0, 12 * style_.scale);
+    ImGui::TextUnformatted(t);
     int left = s->freeSkipsLeft();
-    if (left < 0) ImGui::Text("Skips %d", s->skipCount());
-    else ImGui::Text("Skips %d (%d free)", s->skipCount(), left);
+    if (left < 0) std::snprintf(t, sizeof t, "Skips %d", s->skipCount());
+    else std::snprintf(t, sizeof t, "Skips %d (%d free)", s->skipCount(), left);
+    counterBreak(t, false, 12 * style_.scale);
+    ImGui::TextUnformatted(t);
     if (s->finishedCount() > 0) {
-        ImGui::SameLine(0, 12 * style_.scale);
-        ImGui::Text("Finished %d", s->finishedCount());
+        std::snprintf(t, sizeof t, "Finished %d", s->finishedCount());
+        counterBreak(t, false, 12 * style_.scale);
+        ImGui::TextUnformatted(t);
     }
-    panels_.needLine();  // the counters line is never cut: a narrow panel grows
+    panels_.needLine();  // a panel not resized by the player grows to keep the counters on one line
 }
 
 void Plugin::drawControls(float width, bool withStop) {
@@ -1261,15 +1274,18 @@ void Plugin::drawControls(float width, bool withStop) {
     float sp = ImGui::GetStyle().ItemSpacing.x;
     bool showGold = s && s->config().goal == Goal::Author && s->config().allowGoldSkip;
     // Skip [Gold skip] Stop: Stop as wide as its label, the others share the rest
-    const float stopW = withStop ? ImGui::CalcTextSize("Stop").x + ImGui::GetStyle().FramePadding.x * 2 + 8 * style_.scale : 0.0f;
-    const float rest = withStop ? width - stopW - sp : width;
-    float bw = showGold ? (rest - sp) * 0.5f : rest;
-    // never narrower than the longest label (a narrow HUD panel grows to fit instead of cutting "Free skip")
+    float stopW = withStop ? ImGui::CalcTextSize("Stop").x + ImGui::GetStyle().FramePadding.x * 2 + 8 * style_.scale : 0.0f;
+    // never narrower than the longest label: a HUD panel grows to fit one row (needWidth), and one the player
+    // made narrower (layout mode) gets one button per row instead of cut labels
     const float pad = ImGui::GetStyle().FramePadding.x * 2 + 8 * style_.scale;
     float labelW = 0;
     for (const char* l : {"Free skip", "Gold skip", "Next map", "Resume map", "Another map"}) labelW = std::max(labelW, ImGui::CalcTextSize(l).x);
-    bw = std::max(bw, labelW + pad);
-    panels_.needWidth((showGold ? 2 * bw + sp : bw) + (withStop ? stopW + sp : 0.0f));
+    const float minRow = (showGold ? 2 * (labelW + pad) + sp : labelW + pad) + (withStop ? stopW + sp : 0.0f);
+    panels_.needWidth(minRow);
+    const bool oneRow = width + 0.5f >= minRow;
+    const float rest = withStop && oneRow ? width - stopW - sp : width;
+    float bw = oneRow ? std::max(showGold ? (rest - sp) * 0.5f : rest, labelW + pad) : width;
+    if (!oneRow) stopW = width;
     if (!s || !run_.active()) {
         ImGui::BeginDisabled();
         ImGui::Button("Skip", ImVec2(width, 0));
@@ -1288,13 +1304,13 @@ void Plugin::drawControls(float width, bool withStop) {
         ImGui::EndDisabled();
     }
     if (showGold) {
-        ImGui::SameLine(0, sp);
+        if (oneRow) ImGui::SameLine(0, sp);
         ImGui::BeginDisabled(!run_.canGoldSkip());
         if (ImGui::Button("Gold skip", ImVec2(bw, 0))) run_.goldSkip();
         ImGui::EndDisabled();
     }
     if (withStop) {
-        ImGui::SameLine(0, sp);
+        if (oneRow) ImGui::SameLine(0, sp);
         stopButton(ImVec2(stopW, 0));
     }
 }
@@ -1314,8 +1330,9 @@ void Plugin::panelControls(bool withStop) {
     ImGui::PopTextWrapPos();
     std::string hs = hotkey(hkSkip_), hg = hotkey(hkGoldSkip_);
     if (!hs.empty() || !hg.empty()) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
         ImGui::TextColored(style_.muted, "%s skip   %s gold skip", hs.c_str(), hg.c_str());
-        panels_.needLine();
+        ImGui::PopTextWrapPos();
     }
 }
 
@@ -1379,13 +1396,16 @@ void Plugin::panelCard() {
         ImGui::TextColored(run_.fetchFailing() ? style_.bad : style_.muted, "%s", run_.fetchStatus().c_str());
     }
     ImGui::Separator();
+    char t[48];
     ui::medalDot(kAuthor);
     ImGui::Text("AT %d", s->authorCount());
-    ImGui::SameLine(0, 12 * style_.scale);
+    std::snprintf(t, sizeof t, "Gold %d", s->goldCount());
+    counterBreak(t, true, 12 * style_.scale);
     ui::medalDot(kGold);
-    ImGui::Text("Gold %d", s->goldCount());
-    ImGui::SameLine(0, 12 * style_.scale);
-    ImGui::Text("Skips %d", s->skipCount());
+    ImGui::TextUnformatted(t);
+    std::snprintf(t, sizeof t, "Skips %d", s->skipCount());
+    counterBreak(t, false, 12 * style_.scale);
+    ImGui::TextUnformatted(t);
     panels_.needLine();
     ImGui::PushTextWrapPos(x0 + w);
     if (!run_.notice().empty()) ImGui::TextColored(style_.warn, "%s", run_.notice().c_str());

@@ -4,7 +4,8 @@
 // the popped-out windows that are kept open when the menu closes.
 //
 // Saved per row (host settings, "win_<key>"): detached, minimized, keepOpen, x, y, w, h (fractions of the
-// screen, so they survive resolution changes), opacity. This file is meant to move into the host as a
+// screen, so they survive resolution changes), opacity, sized (the player resized it: its width is kept, the
+// content wraps instead of the panel growing). This file is meant to move into the host as a
 // shared API later; plugin specifics are only the table in panels.cpp.
 #pragma once
 #include <string>
@@ -30,6 +31,7 @@ struct PanelState {
     bool detached = false, minimized = false, keepOpen = false;
     float x = 0, y = 0, w = 0, h = 0;  // fractions of the screen; w <= 0: never placed
     int opacity = 100;
+    bool sized = false;  // resized by the player (layout mode): the width stays, the content wraps to it
 };
 
 class Panels {
@@ -57,7 +59,8 @@ public:
     void applyCompactPreset();  // the card out (kept open), the split panels back in the menu
     void markDirty() { dirty_ = true; }
     // While a HUD panel draws: a line or a row of buttons that needs w pixels of content width and can't be cut
-    // (buttons, counters). A locked panel grows to the widest one (drawWindow). Elsewhere it does nothing.
+    // (buttons, counters). A locked panel grows to the widest one (drawWindow), unless the player resized it
+    // (PanelState::sized). Elsewhere it does nothing.
     void needWidth(float w) { contentNeed_ = w > contentNeed_ ? w : contentNeed_; }
     // The same for the item just drawn, measured from the start of the content region (a line of fixed texts).
     void needLine();
