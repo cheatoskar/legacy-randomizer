@@ -4,7 +4,7 @@
 
 Press Start, the mod loads a random map from TM Exchange, you try to reach the goal medal, then the next map comes. It runs as a module (plugin) of the [Horizon Client](https://github.com/cheatoskar/horizon-client), solo only.
 
-Version 0.3.3. MIT licence. Built with [Claude Code](https://claude.com/claude-code).
+Version 0.3.4. MIT licence. Built with [Claude Code](https://claude.com/claude-code).
 
 **[Download the latest release](https://github.com/cheatoskar/legacy-randomizer/releases/latest)** · [Install](#install) · [How to play](#how-to-play) · [Features](#features) · [Controls](#controls) · [Known issues](#known-issues) · [Building](#building) · [TM Horizon family](#tm-horizon-family)
 
@@ -25,9 +25,9 @@ Six projects, built to work together. TM Horizon installs and updates the others
 | Project | What it is | Games | How to get it | Repo |
 |---|---|---|---|---|
 | **TM Horizon** | Launcher for every TrackMania game on Windows: library, mods, maps, servers, statistics. Installs and updates Horizon Client, Legacy Essentials and TM Vibrant Shaders. | All, from TrackMania (2003) to Trackmania (2020) | Installer from the releases (0.5.3, Launcher Preview) | [cheatoskar/tm-horizon](https://github.com/cheatoskar/tm-horizon) |
-| **Horizon Client** | In-game menu and mod loader with modules: Legacy Essentials, TMX Browser, TMX Upload, WR Hunter, Input Display, Horizon Performance, Horizon Scripts. | ESWC, Sunrise, Original; TMNF and TMUF through TMLoader (experimental) | TM Horizon (game page), or a zip per game (0.3.2) | [cheatoskar/horizon-client](https://github.com/cheatoskar/horizon-client) |
+| **Horizon Client** | In-game menu and mod loader with modules: Legacy Essentials, TMX Browser, TMX Upload, WR Hunter, Input Display, Horizon Performance, Horizon Scripts. | ESWC, Sunrise, Original; TMNF and TMUF through TMLoader (experimental) | TM Horizon (game page), or a zip per game (0.3.3) | [cheatoskar/horizon-client](https://github.com/cheatoskar/horizon-client) |
 | **Legacy Essentials** | Autosave, controller fix, login fix and game settings. A standalone `dinput8.dll` mod with its own menu (`Ctrl+F2`). The same features are the "Legacy Essentials" group in Horizon Client. | ESWC, Sunrise, Original | A zip per game (1.3.1); TM Horizon installs it on ESWC | [cheatoskar/legacy-essentials](https://github.com/cheatoskar/legacy-essentials) |
-| **Legacy Randomizer** (this repo) | Random Map Challenge with maps from TMX, inside the game. A Horizon Client module. | ESWC, Sunrise, Original (solo) | A zip with Horizon Client, or the plugin alone (0.3.3) | [cheatoskar/legacy-randomizer](https://github.com/cheatoskar/legacy-randomizer) |
+| **Legacy Randomizer** (this repo) | Random Map Challenge with maps from TMX, inside the game. A Horizon Client module. | ESWC, Sunrise, Original (solo) | A zip with Horizon Client, or the plugin alone (0.3.4) | [cheatoskar/legacy-randomizer](https://github.com/cheatoskar/legacy-randomizer) |
 | **TM Vibrant Shaders** | Lighting, weather, skies, photos, clips and video export. Standalone, or as four Horizon Client modules. | TMNF, TMUF, TM2; ESWC, Sunrise, Original experimental | Setup or ModLoader server (1.6.1), Horizon modules zip (2.0.1); TM Horizon installs it on TMNF, TMUF and ESWC | [cheatoskar/TM-Vibrant-Shaders](https://github.com/cheatoskar/TM-Vibrant-Shaders) |
 | ***For developers*** | | | | |
 | **trackmania-internals** | Notes for mod developers: addresses, structures, file formats and physics of the games. | TMNF, TMUF, ESWC, Sunrise, Original, ManiaPlanet | Read it on GitHub | [cheatoskar/trackmania-internals](https://github.com/cheatoskar/trackmania-internals) |
@@ -59,8 +59,8 @@ The exact exes and their SHA-256 are in the [Horizon Client README](https://gith
 
 | File | What it holds |
 |---|---|
-| `LegacyRandomizer-<version>-ESWC-with-Horizon-Client.zip` | Horizon Client 0.3.1 and the plugin, for ESWC |
-| `LegacyRandomizer-<version>-Sunrise-with-Horizon-Client.zip` | Horizon Client 0.3.1 and the plugin, for Sunrise |
+| `LegacyRandomizer-<version>-ESWC-with-Horizon-Client.zip` | Horizon Client 0.3.3 and the plugin, for ESWC |
+| `LegacyRandomizer-<version>-Sunrise-with-Horizon-Client.zip` | Horizon Client 0.3.3 and the plugin, for Sunrise |
 | `LegacyRandomizer-<version>-plugin.zip` | only the plugin, if you already have the Horizon Client |
 | `SHA256SUMS.txt` | checksums of the zips |
 

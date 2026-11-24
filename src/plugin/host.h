@@ -89,6 +89,7 @@ public:
     virtual bool isOnline() = 0;
     virtual bool actionsAllowed() = 0;  // false: online gate or Competition Patch run gate
     virtual bool menuOpen() = 0;
+    virtual bool layoutMode() { return false; }  // Horizon layout mode (Ctrl+Insert), Horizon Client 0.3.3+
 
     // game control (main menu / end screen rules are enforced by the caller AND the host)
     virtual HostResult playMapFile(const std::string& utf8Path) = 0;

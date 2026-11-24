@@ -118,7 +118,9 @@ void pill(const char* text, const ImVec4& color, bool outline, const char* tip, 
 
 void flowNext(float w, float spacing) {
     ImGui::SameLine(0, spacing);
-    if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+    // Decided as if a scrollbar were there: a wrap makes the page taller, a scrollbar appears and takes width,
+    // and without that margin the line flipped between one and two rows every frame ("Run finished", Sunrise).
+    if (ImGui::GetContentRegionAvail().x < w + ImGui::GetStyle().ScrollbarSize) ImGui::NewLine();
 }
 
 // ------------------------------------------------------------------ cards

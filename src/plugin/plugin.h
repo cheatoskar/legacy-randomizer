@@ -11,7 +11,7 @@
 #include "settings.h"
 #include "site_logos.h"
 
-#define LR_PLUGIN_VERSION "0.3.3"
+#define LR_PLUGIN_VERSION "0.3.4"
 
 namespace lr {
 
